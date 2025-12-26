@@ -147,6 +147,7 @@
             background: #16213e;
             border-radius: 12px;
             padding: 24px;
+            margin-bottom: 24px;
             display: none;
         }
 
@@ -154,7 +155,7 @@
             display: block;
         }
 
-        .games-section h3 {
+        .section-header {
             font-size: 0.85rem;
             color: #888;
             text-transform: uppercase;
@@ -196,6 +197,60 @@
         .delete-btn:hover {
             opacity: 1;
             background: transparent;
+        }
+
+        .leaderboard-section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            display: none;
+        }
+
+        .leaderboard-section.visible {
+            display: block;
+        }
+
+        .leaderboard-item {
+            padding: 12px;
+            background: #0f0f1a;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .leaderboard-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .leaderboard-rank {
+            color: #888;
+            margin-right: 8px;
+        }
+
+        .leaderboard-name {
+            font-weight: 600;
+        }
+
+        .leaderboard-total {
+            margin-left: 6px;
+        }
+
+        .leaderboard-total.positive {
+            color: #4ade80;
+        }
+
+        .leaderboard-total.negative {
+            color: #f87171;
+        }
+
+        .leaderboard-total.zero {
+            color: #888;
+        }
+
+        .leaderboard-breakdown {
+            color: #666;
+            margin-left: 8px;
+            font-size: 0.85rem;
         }
 
         .toast {
@@ -243,8 +298,13 @@
         </div>
 
         <div class="games-section" id="gamesSection">
-            <h3>Games Added</h3>
+            <h3 class="section-header">Games Added</h3>
             <div id="gamesList"></div>
+        </div>
+
+        <div class="leaderboard-section" id="leaderboardSection">
+            <h3 class="section-header">Leaderboard</h3>
+            <div id="leaderboardList"></div>
         </div>
     </div>
 
@@ -259,9 +319,11 @@
         const toast = document.getElementById('toast');
         const gamesSection = document.getElementById('gamesSection');
         const gamesList = document.getElementById('gamesList');
+        const leaderboardSection = document.getElementById('leaderboardSection');
+        const leaderboardList = document.getElementById('leaderboardList');
 
-        // Store all games data: { gameId: { players: {...}, data: {...} } }
-        const games = {};
+        // Store all games data in order: [{ gameId, data }]
+        const games = [];
 
         fetchBtn.addEventListener('click', fetchGames);
         gameLink.addEventListener('keypress', (e) => {
@@ -273,7 +335,6 @@
         async function fetchGames() {
             const input = gameLink.value.trim();
             
-            // Extract all game IDs from input (supports multiple links)
             const matches = [...input.matchAll(/pokernow\.club\/games\/(pgl[a-zA-Z0-9_-]+)/g)];
             
             if (matches.length === 0) {
@@ -281,9 +342,10 @@
                 return;
             }
 
-            const gameIds = matches.map(m => m[1]).filter(id => !games[id]);
+            const existingIds = games.map(g => g.gameId);
+            const newGameIds = matches.map(m => m[1]).filter(id => !existingIds.includes(id));
             
-            if (gameIds.length === 0) {
+            if (newGameIds.length === 0) {
                 showError('All games already added.');
                 return;
             }
@@ -293,7 +355,7 @@
             fetchBtn.textContent = 'Loading...';
 
             try {
-                for (const gameId of gameIds) {
+                for (const gameId of newGameIds) {
                     const response = await fetch(`/api/players?gameId=${gameId}`);
                     
                     if (!response.ok) {
@@ -301,7 +363,7 @@
                     }
 
                     const data = await response.json();
-                    games[gameId] = data;
+                    games.push({ gameId, data });
                 }
 
                 gameLink.value = '';
@@ -315,32 +377,50 @@
         }
 
         function deleteGame(gameId) {
-            delete games[gameId];
+            const index = games.findIndex(g => g.gameId === gameId);
+            if (index > -1) {
+                games.splice(index, 1);
+            }
             updateDisplay();
         }
 
         function updateDisplay() {
             // Aggregate all players across all games
             const aggregated = {};
+            const playerGameResults = {};
 
-            for (const gameId of Object.keys(games)) {
-                const data = games[gameId];
+            for (let i = 0; i < games.length; i++) {
+                const { gameId, data } = games[i];
                 for (const playerId of Object.keys(data.playersInfos)) {
                     const player = data.playersInfos[playerId];
                     const name = player.names[0] || 'Unknown';
                     
                     if (!aggregated[name]) {
                         aggregated[name] = 0;
+                        playerGameResults[name] = [];
                     }
                     aggregated[name] += player.net;
                 }
             }
 
-            const players = Object.entries(aggregated).map(([name, net]) => ({ name, net }));
+            // Build game-by-game results for each player
+            for (const name of Object.keys(aggregated)) {
+                playerGameResults[name] = games.map(({ data }) => {
+                    const playerEntry = Object.values(data.playersInfos).find(p => p.names[0] === name);
+                    return playerEntry ? playerEntry.net : null;
+                });
+            }
+
+            const players = Object.entries(aggregated).map(([name, net]) => ({ 
+                name, 
+                net,
+                breakdown: playerGameResults[name]
+            }));
+
             const transactions = calculateSettlements(players);
 
             // Update settlements display
-            if (Object.keys(games).length === 0) {
+            if (games.length === 0) {
                 results.classList.remove('visible');
             } else if (transactions.length === 0) {
                 settlements.innerHTML = '<div class="no-settlements">No settlements needed</div>';
@@ -354,23 +434,51 @@
             }
 
             // Update games list
-            const gameIds = Object.keys(games);
-            if (gameIds.length === 0) {
+            if (games.length === 0) {
                 gamesSection.classList.remove('visible');
             } else {
-                gamesList.innerHTML = gameIds.map(id => `
+                gamesList.innerHTML = games.map(({ gameId }) => `
                     <div class="game-item">
-                        <span class="game-id">${id}</span>
-                        <button class="delete-btn" onclick="deleteGame('${id}')">×</button>
+                        <span class="game-id">${gameId}</span>
+                        <button class="delete-btn" onclick="deleteGame('${gameId}')">×</button>
                     </div>
                 `).join('');
                 gamesSection.classList.add('visible');
             }
+
+            // Update leaderboard
+            if (games.length === 0) {
+                leaderboardSection.classList.remove('visible');
+            } else {
+                players.sort((a, b) => b.net - a.net);
+                
+                leaderboardList.innerHTML = players.map((player, index) => {
+                    const totalClass = player.net > 0 ? 'positive' : player.net < 0 ? 'negative' : 'zero';
+                    const totalSign = player.net >= 0 ? '+' : '';
+                    
+                    const breakdownStr = player.breakdown.map(val => {
+                        if (val === null) return '---';
+                        const sign = val >= 0 ? '+' : '';
+                        return `${sign}$${formatAmount(val)}`;
+                    }).join(', ');
+
+                    return `
+                        <div class="leaderboard-item">
+                            <span class="leaderboard-rank">#${index + 1}:</span>
+                            <span class="leaderboard-name">${escapeHtml(player.name)}</span>
+                            <span class="leaderboard-total ${totalClass}">${totalSign}$${formatAmount(Math.abs(player.net))}</span>
+                            <span class="leaderboard-breakdown">(${breakdownStr})</span>
+                        </div>
+                    `;
+                }).join('');
+                
+                leaderboardSection.classList.add('visible');
+            }
         }
 
         function calculateSettlements(players) {
-            const winners = players.filter(p => p.net > 0).map(p => ({ ...p }));
-            const losers = players.filter(p => p.net < 0).map(p => ({ ...p, net: Math.abs(p.net) }));
+            const winners = players.filter(p => p.net > 0).map(p => ({ name: p.name, net: p.net }));
+            const losers = players.filter(p => p.net < 0).map(p => ({ name: p.name, net: Math.abs(p.net) }));
 
             winners.sort((a, b) => b.net - a.net);
             losers.sort((a, b) => b.net - a.net);
@@ -415,7 +523,13 @@
         }
 
         function formatAmount(num) {
-            return num.toLocaleString('en-US');
+            return Math.abs(num).toLocaleString('en-US');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         function showToast() {
