@@ -147,7 +147,6 @@
             background: #16213e;
             border-radius: 12px;
             padding: 24px;
-            margin-bottom: 24px;
             display: none;
         }
 
@@ -203,23 +202,41 @@
             background: #16213e;
             border-radius: 12px;
             padding: 24px;
+            margin-bottom: 24px;
             display: none;
+            cursor: pointer;
+            transition: background 0.15s;
         }
 
         .leaderboard-section.visible {
             display: block;
         }
 
+        .leaderboard-section:hover {
+            background: #1a2744;
+        }
+
+        .leaderboard-section:active {
+            background: #1e3a1e;
+        }
+
+        .leaderboard-section.copied {
+            background: #1e3a1e;
+        }
+
         .leaderboard-item {
-            padding: 12px;
-            background: #0f0f1a;
-            border-radius: 6px;
-            margin-bottom: 8px;
+            padding: 10px 0;
             font-size: 0.95rem;
+            border-bottom: 1px solid #2a3a5a;
         }
 
         .leaderboard-item:last-child {
-            margin-bottom: 0;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .leaderboard-item:first-child {
+            padding-top: 0;
         }
 
         .leaderboard-rank {
@@ -297,14 +314,15 @@
             <div class="hint">Click anywhere to copy all</div>
         </div>
 
-        <div class="games-section" id="gamesSection">
-            <h3 class="section-header">Games Added</h3>
-            <div id="gamesList"></div>
-        </div>
-
         <div class="leaderboard-section" id="leaderboardSection">
             <h3 class="section-header">Leaderboard</h3>
             <div id="leaderboardList"></div>
+            <div class="hint">Click anywhere to copy all</div>
+        </div>
+
+        <div class="games-section" id="gamesSection">
+            <h3 class="section-header">Games Added</h3>
+            <div id="gamesList"></div>
         </div>
     </div>
 
@@ -331,6 +349,7 @@
         });
 
         results.addEventListener('click', copyAllSettlements);
+        leaderboardSection.addEventListener('click', copyLeaderboard);
 
         async function fetchGames() {
             const input = gameLink.value.trim();
@@ -454,16 +473,16 @@
                 
                 leaderboardList.innerHTML = players.map((player, index) => {
                     const totalClass = player.net > 0 ? 'positive' : player.net < 0 ? 'negative' : 'zero';
-                    const totalSign = player.net >= 0 ? '+' : '';
+                    const totalSign = player.net >= 0 ? '+' : '-';
                     
                     const breakdownStr = player.breakdown.map(val => {
                         if (val === null) return '---';
-                        const sign = val >= 0 ? '+' : '';
-                        return `${sign}$${formatAmount(val)}`;
+                        const sign = val >= 0 ? '+' : '-';
+                        return `${sign}$${formatAmount(Math.abs(val))}`;
                     }).join(', ');
 
                     return `
-                        <div class="leaderboard-item">
+                        <div class="leaderboard-item" data-text="#${index + 1}: ${player.name} ${totalSign}$${formatAmount(Math.abs(player.net))} (${breakdownStr})">
                             <span class="leaderboard-rank">#${index + 1}:</span>
                             <span class="leaderboard-name">${escapeHtml(player.name)}</span>
                             <span class="leaderboard-total ${totalClass}">${totalSign}$${formatAmount(Math.abs(player.net))}</span>
@@ -518,6 +537,18 @@
                 navigator.clipboard.writeText(text);
                 results.classList.add('copied');
                 setTimeout(() => results.classList.remove('copied'), 300);
+                showToast();
+            }
+        }
+
+        function copyLeaderboard() {
+            const items = document.querySelectorAll('.leaderboard-item');
+            const text = Array.from(items).map(item => item.getAttribute('data-text')).join('\n');
+            
+            if (text) {
+                navigator.clipboard.writeText(text);
+                leaderboardSection.classList.add('copied');
+                setTimeout(() => leaderboardSection.classList.remove('copied'), 300);
                 showToast();
             }
         }
