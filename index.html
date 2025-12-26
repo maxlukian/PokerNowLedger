@@ -20,7 +20,7 @@
         }
 
         .container {
-            max-width: 900px;
+            max-width: 600px;
             margin: 0 auto;
         }
 
@@ -41,14 +41,6 @@
             border-radius: 12px;
             padding: 24px;
             margin-bottom: 24px;
-        }
-
-        .input-section h2 {
-            font-size: 1rem;
-            color: #888;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
 
         .input-row {
@@ -107,79 +99,6 @@
             display: block;
         }
 
-        .results h2 {
-            font-size: 1.25rem;
-            margin-bottom: 16px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th, td {
-            padding: 12px 16px;
-            text-align: left;
-            border-bottom: 1px solid #2a3a5a;
-        }
-
-        th {
-            color: #888;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.5px;
-        }
-
-        td {
-            font-size: 0.95rem;
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        .positive {
-            color: #4ade80;
-            font-weight: 600;
-        }
-
-        .negative {
-            color: #f87171;
-            font-weight: 600;
-        }
-
-        .zero {
-            color: #888;
-        }
-
-        .summary {
-            display: flex;
-            gap: 24px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-
-        .summary-card {
-            background: #0f0f1a;
-            padding: 16px 20px;
-            border-radius: 8px;
-            min-width: 140px;
-        }
-
-        .summary-card .label {
-            color: #888;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }
-
-        .summary-card .value {
-            font-size: 1.5rem;
-            font-weight: 600;
-        }
-
         .error {
             background: #3d1515;
             border: 1px solid #7f1d1d;
@@ -194,30 +113,61 @@
             display: block;
         }
 
-        .game-link {
-            font-size: 0.85rem;
-            color: #666;
-            margin-top: 8px;
-            margin-bottom: 16px;
+        .settlement-item {
+            padding: 14px 16px;
+            background: #0f0f1a;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+            font-size: 1.05rem;
         }
 
-        .game-link a {
-            color: #4a6fa5;
-            text-decoration: none;
+        .settlement-item:hover {
+            background: #1a1a2e;
         }
 
-        .game-link a:hover {
-            text-decoration: underline;
+        .settlement-item:active {
+            transform: scale(0.98);
+        }
+
+        .settlement-item.copied {
+            background: #1a3a1a;
+        }
+
+        .hint {
+            color: #555;
+            font-size: 0.8rem;
+            text-align: center;
+            margin-top: 16px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4a6fa5;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+
+        .toast.visible {
+            opacity: 1;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>PokerNow Ledger</h1>
-        <p class="subtitle">View player results from any PokerNow game</p>
+        <p class="subtitle">Calculate settlements from any PokerNow game</p>
 
         <div class="input-section">
-            <h2>Enter Game Link</h2>
             <div class="input-row">
                 <input type="text" id="gameLink" placeholder="https://www.pokernow.club/games/pgl...">
                 <button id="fetchBtn">Get Results</button>
@@ -226,34 +176,20 @@
         </div>
 
         <div class="results" id="results">
-            <h2>Game Results</h2>
-            <div class="game-link" id="gameInfo"></div>
-            
-            <div class="summary" id="summary"></div>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th>Player</th>
-                        <th>Buy-In</th>
-                        <th>Stack</th>
-                        <th>Net P/L</th>
-                    </tr>
-                </thead>
-                <tbody id="resultsBody">
-                </tbody>
-            </table>
+            <div id="settlements"></div>
+            <div class="hint">Click any line to copy</div>
         </div>
     </div>
+
+    <div class="toast" id="toast">Copied!</div>
 
     <script>
         const gameLink = document.getElementById('gameLink');
         const fetchBtn = document.getElementById('fetchBtn');
         const results = document.getElementById('results');
-        const resultsBody = document.getElementById('resultsBody');
-        const summary = document.getElementById('summary');
-        const gameInfo = document.getElementById('gameInfo');
+        const settlements = document.getElementById('settlements');
         const errorDiv = document.getElementById('error');
+        const toast = document.getElementById('toast');
 
         fetchBtn.addEventListener('click', fetchGame);
         gameLink.addEventListener('keypress', (e) => {
@@ -263,10 +199,9 @@
         async function fetchGame() {
             const url = gameLink.value.trim();
             
-            // Extract game ID from URL
             const match = url.match(/pokernow\.club\/games\/(pgl[a-zA-Z0-9_-]+)/);
             if (!match) {
-                showError('Invalid PokerNow link. URL should look like: https://www.pokernow.club/games/pgl...');
+                showError('Invalid PokerNow link.');
                 return;
             }
 
@@ -284,7 +219,7 @@
                 }
 
                 const data = await response.json();
-                displayResults(data, gameId);
+                displaySettlements(data);
             } catch (err) {
                 showError(`Error: ${err.message}`);
             } finally {
@@ -293,71 +228,82 @@
             }
         }
 
-        function displayResults(data, gameId) {
-            const playersInfos = data.playersInfos;
-            
-            // Convert to array and sort by net (descending)
-            const players = Object.values(playersInfos).map(p => ({
+        function calculateSettlements(players) {
+            // Separate into winners and losers
+            const winners = players.filter(p => p.net > 0).map(p => ({ ...p }));
+            const losers = players.filter(p => p.net < 0).map(p => ({ ...p, net: Math.abs(p.net) }));
+
+            // Sort by amount descending
+            winners.sort((a, b) => b.net - a.net);
+            losers.sort((a, b) => b.net - a.net);
+
+            const transactions = [];
+
+            let i = 0, j = 0;
+            while (i < losers.length && j < winners.length) {
+                const loser = losers[i];
+                const winner = winners[j];
+                
+                const amount = Math.min(loser.net, winner.net);
+                
+                if (amount > 0) {
+                    transactions.push({
+                        from: loser.name,
+                        to: winner.name,
+                        amount: amount
+                    });
+                }
+
+                loser.net -= amount;
+                winner.net -= amount;
+
+                if (loser.net === 0) i++;
+                if (winner.net === 0) j++;
+            }
+
+            return transactions;
+        }
+
+        function formatAmount(num) {
+            return num.toLocaleString('en-US');
+        }
+
+        function displaySettlements(data) {
+            const players = Object.values(data.playersInfos).map(p => ({
                 name: p.names[0] || 'Unknown',
-                buyIn: p.buyInSum,
-                stack: p.inGame,
                 net: p.net
-            })).sort((a, b) => b.net - a.net);
+            }));
 
-            // Calculate summary stats
-            const totalPlayers = players.length;
-            const winners = players.filter(p => p.net > 0).length;
-            const totalBuyIn = data.buyInTotal;
-            const biggestWin = Math.max(...players.map(p => p.net));
-            const biggestLoss = Math.min(...players.map(p => p.net));
+            const transactions = calculateSettlements(players);
 
-            gameInfo.innerHTML = `<a href="https://www.pokernow.club/games/${gameId}" target="_blank">View game on PokerNow →</a>`;
+            if (transactions.length === 0) {
+                settlements.innerHTML = '<div class="settlement-item">No settlements needed</div>';
+            } else {
+                settlements.innerHTML = transactions.map(t => {
+                    const text = `${t.from} pays ${t.to} $${formatAmount(t.amount)}`;
+                    return `<div class="settlement-item" data-text="${text}">${text}</div>`;
+                }).join('');
 
-            summary.innerHTML = `
-                <div class="summary-card">
-                    <div class="label">Players</div>
-                    <div class="value">${totalPlayers}</div>
-                </div>
-                <div class="summary-card">
-                    <div class="label">Winners</div>
-                    <div class="value positive">${winners}</div>
-                </div>
-                <div class="summary-card">
-                    <div class="label">Total Buy-In</div>
-                    <div class="value">${formatNumber(totalBuyIn)}</div>
-                </div>
-                <div class="summary-card">
-                    <div class="label">Biggest Win</div>
-                    <div class="value positive">+${formatNumber(biggestWin)}</div>
-                </div>
-                <div class="summary-card">
-                    <div class="label">Biggest Loss</div>
-                    <div class="value negative">${formatNumber(biggestLoss)}</div>
-                </div>
-            `;
-
-            resultsBody.innerHTML = players.map(player => `
-                <tr>
-                    <td>${escapeHtml(player.name)}</td>
-                    <td>${formatNumber(player.buyIn)}</td>
-                    <td>${formatNumber(player.stack)}</td>
-                    <td class="${player.net > 0 ? 'positive' : player.net < 0 ? 'negative' : 'zero'}">
-                        ${player.net >= 0 ? '+' : ''}${formatNumber(player.net)}
-                    </td>
-                </tr>
-            `).join('');
+                // Add click handlers
+                document.querySelectorAll('.settlement-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const text = item.getAttribute('data-text');
+                        navigator.clipboard.writeText(text);
+                        
+                        item.classList.add('copied');
+                        setTimeout(() => item.classList.remove('copied'), 300);
+                        
+                        showToast();
+                    });
+                });
+            }
 
             results.classList.add('visible');
         }
 
-        function formatNumber(num) {
-            return num.toLocaleString('en-US');
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        function showToast() {
+            toast.classList.add('visible');
+            setTimeout(() => toast.classList.remove('visible'), 1500);
         }
 
         function showError(message) {
