@@ -92,11 +92,26 @@
             background: #16213e;
             border-radius: 12px;
             padding: 24px;
+            margin-bottom: 24px;
             display: none;
+            cursor: pointer;
+            transition: background 0.15s;
         }
 
         .results.visible {
             display: block;
+        }
+
+        .results:hover {
+            background: #1a2744;
+        }
+
+        .results:active {
+            background: #1e3a1e;
+        }
+
+        .results.copied {
+            background: #1e3a1e;
         }
 
         .error {
@@ -114,25 +129,8 @@
         }
 
         .settlement-item {
-            padding: 14px 16px;
-            background: #0f0f1a;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            transition: background 0.15s, transform 0.1s;
+            padding: 8px 0;
             font-size: 1.05rem;
-        }
-
-        .settlement-item:hover {
-            background: #1a1a2e;
-        }
-
-        .settlement-item:active {
-            transform: scale(0.98);
-        }
-
-        .settlement-item.copied {
-            background: #1a3a1a;
         }
 
         .hint {
@@ -140,6 +138,63 @@
             font-size: 0.8rem;
             text-align: center;
             margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #2a3a5a;
+        }
+
+        .games-section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            display: none;
+        }
+
+        .games-section.visible {
+            display: block;
+        }
+
+        .games-section h3 {
+            font-size: 0.85rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .game-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: #0f0f1a;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .game-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .game-id {
+            color: #aaa;
+            font-family: monospace;
+        }
+
+        .delete-btn {
+            background: transparent;
+            border: none;
+            color: #f87171;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 1.1rem;
+            opacity: 0.6;
+            transition: opacity 0.15s;
+        }
+
+        .delete-btn:hover {
+            opacity: 1;
+            background: transparent;
         }
 
         .toast {
@@ -160,24 +215,35 @@
         .toast.visible {
             opacity: 1;
         }
+
+        .no-settlements {
+            color: #888;
+            text-align: center;
+            padding: 20px 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>PokerNow Ledger</h1>
-        <p class="subtitle">Calculate settlements from any PokerNow game</p>
+        <p class="subtitle">Calculate settlements from PokerNow games</p>
 
         <div class="input-section">
             <div class="input-row">
-                <input type="text" id="gameLink" placeholder="https://www.pokernow.club/games/pgl...">
-                <button id="fetchBtn">Get Results</button>
+                <input type="text" id="gameLink" placeholder="Paste one or more PokerNow links...">
+                <button id="fetchBtn">Add</button>
             </div>
             <div class="error" id="error"></div>
         </div>
 
         <div class="results" id="results">
             <div id="settlements"></div>
-            <div class="hint">Click any line to copy</div>
+            <div class="hint">Click anywhere to copy all</div>
+        </div>
+
+        <div class="games-section" id="gamesSection">
+            <h3>Games Added</h3>
+            <div id="gamesList"></div>
         </div>
     </div>
 
@@ -190,50 +256,121 @@
         const settlements = document.getElementById('settlements');
         const errorDiv = document.getElementById('error');
         const toast = document.getElementById('toast');
+        const gamesSection = document.getElementById('gamesSection');
+        const gamesList = document.getElementById('gamesList');
 
-        fetchBtn.addEventListener('click', fetchGame);
+        // Store all games data: { gameId: { players: {...}, data: {...} } }
+        const games = {};
+
+        fetchBtn.addEventListener('click', fetchGames);
         gameLink.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') fetchGame();
+            if (e.key === 'Enter') fetchGames();
         });
 
-        async function fetchGame() {
-            const url = gameLink.value.trim();
+        results.addEventListener('click', copyAllSettlements);
+
+        async function fetchGames() {
+            const input = gameLink.value.trim();
             
-            const match = url.match(/pokernow\.club\/games\/(pgl[a-zA-Z0-9_-]+)/);
-            if (!match) {
-                showError('Invalid PokerNow link.');
+            // Extract all game IDs from input (supports multiple links)
+            const matches = [...input.matchAll(/pokernow\.club\/games\/(pgl[a-zA-Z0-9_-]+)/g)];
+            
+            if (matches.length === 0) {
+                showError('No valid PokerNow links found.');
                 return;
             }
 
-            const gameId = match[1];
-            hideError();
+            const gameIds = matches.map(m => m[1]).filter(id => !games[id]);
             
+            if (gameIds.length === 0) {
+                showError('All games already added.');
+                return;
+            }
+
+            hideError();
             fetchBtn.disabled = true;
             fetchBtn.textContent = 'Loading...';
 
             try {
-                const response = await fetch(`/api/players?gameId=${gameId}`);
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch game data (${response.status})`);
+                for (const gameId of gameIds) {
+                    const response = await fetch(`/api/players?gameId=${gameId}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch game ${gameId}`);
+                    }
+
+                    const data = await response.json();
+                    games[gameId] = data;
                 }
 
-                const data = await response.json();
-                displaySettlements(data);
+                gameLink.value = '';
+                updateDisplay();
             } catch (err) {
                 showError(`Error: ${err.message}`);
             } finally {
                 fetchBtn.disabled = false;
-                fetchBtn.textContent = 'Get Results';
+                fetchBtn.textContent = 'Add';
+            }
+        }
+
+        function deleteGame(gameId) {
+            delete games[gameId];
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            // Aggregate all players across all games
+            const aggregated = {};
+
+            for (const gameId of Object.keys(games)) {
+                const data = games[gameId];
+                for (const playerId of Object.keys(data.playersInfos)) {
+                    const player = data.playersInfos[playerId];
+                    const name = player.names[0] || 'Unknown';
+                    
+                    if (!aggregated[name]) {
+                        aggregated[name] = 0;
+                    }
+                    aggregated[name] += player.net;
+                }
+            }
+
+            const players = Object.entries(aggregated).map(([name, net]) => ({ name, net }));
+            const transactions = calculateSettlements(players);
+
+            // Update settlements display
+            if (Object.keys(games).length === 0) {
+                results.classList.remove('visible');
+            } else if (transactions.length === 0) {
+                settlements.innerHTML = '<div class="no-settlements">No settlements needed</div>';
+                results.classList.add('visible');
+            } else {
+                settlements.innerHTML = transactions.map(t => {
+                    const text = `${t.from} pays ${t.to} $${formatAmount(t.amount)}`;
+                    return `<div class="settlement-item">${text}</div>`;
+                }).join('');
+                results.classList.add('visible');
+            }
+
+            // Update games list
+            const gameIds = Object.keys(games);
+            if (gameIds.length === 0) {
+                gamesSection.classList.remove('visible');
+            } else {
+                gamesList.innerHTML = gameIds.map(id => `
+                    <div class="game-item">
+                        <span class="game-id">${id}</span>
+                        <button class="delete-btn" onclick="deleteGame('${id}')">×</button>
+                    </div>
+                `).join('');
+                gamesSection.classList.add('visible');
             }
         }
 
         function calculateSettlements(players) {
-            // Separate into winners and losers
             const winners = players.filter(p => p.net > 0).map(p => ({ ...p }));
             const losers = players.filter(p => p.net < 0).map(p => ({ ...p, net: Math.abs(p.net) }));
 
-            // Sort by amount descending
             winners.sort((a, b) => b.net - a.net);
             losers.sort((a, b) => b.net - a.net);
 
@@ -264,41 +401,20 @@
             return transactions;
         }
 
-        function formatAmount(num) {
-            return num.toLocaleString('en-US');
+        function copyAllSettlements() {
+            const items = document.querySelectorAll('.settlement-item');
+            const text = Array.from(items).map(item => item.textContent).join('\n');
+            
+            if (text) {
+                navigator.clipboard.writeText(text);
+                results.classList.add('copied');
+                setTimeout(() => results.classList.remove('copied'), 300);
+                showToast();
+            }
         }
 
-        function displaySettlements(data) {
-            const players = Object.values(data.playersInfos).map(p => ({
-                name: p.names[0] || 'Unknown',
-                net: p.net
-            }));
-
-            const transactions = calculateSettlements(players);
-
-            if (transactions.length === 0) {
-                settlements.innerHTML = '<div class="settlement-item">No settlements needed</div>';
-            } else {
-                settlements.innerHTML = transactions.map(t => {
-                    const text = `${t.from} pays ${t.to} $${formatAmount(t.amount)}`;
-                    return `<div class="settlement-item" data-text="${text}">${text}</div>`;
-                }).join('');
-
-                // Add click handlers
-                document.querySelectorAll('.settlement-item').forEach(item => {
-                    item.addEventListener('click', () => {
-                        const text = item.getAttribute('data-text');
-                        navigator.clipboard.writeText(text);
-                        
-                        item.classList.add('copied');
-                        setTimeout(() => item.classList.remove('copied'), 300);
-                        
-                        showToast();
-                    });
-                });
-            }
-
-            results.classList.add('visible');
+        function formatAmount(num) {
+            return num.toLocaleString('en-US');
         }
 
         function showToast() {
@@ -309,7 +425,6 @@
         function showError(message) {
             errorDiv.textContent = message;
             errorDiv.classList.add('visible');
-            results.classList.remove('visible');
         }
 
         function hideError() {
