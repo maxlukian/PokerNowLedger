@@ -16,29 +16,384 @@
             background-color: #1a1a2e;
             color: #eee;
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            padding: 40px 20px;
         }
 
         .container {
-            text-align: center;
+            max-width: 900px;
+            margin: 0 auto;
         }
 
         h1 {
             font-size: 2.5rem;
             margin-bottom: 0.5rem;
+            text-align: center;
         }
 
-        p {
+        .subtitle {
             color: #888;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .input-section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .input-section h2 {
+            font-size: 1rem;
+            color: #888;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #2a3a5a;
+            border-radius: 8px;
+            background: #0f0f1a;
+            color: #eee;
+            font-size: 1rem;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #4a6fa5;
+        }
+
+        input[type="text"]::placeholder {
+            color: #555;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            background: #4a6fa5;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #5a7fb5;
+        }
+
+        button:disabled {
+            background: #3a4a5a;
+            cursor: not-allowed;
+        }
+
+        .results {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            display: none;
+        }
+
+        .results.visible {
+            display: block;
+        }
+
+        .results h2 {
+            font-size: 1.25rem;
+            margin-bottom: 16px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #2a3a5a;
+        }
+
+        th {
+            color: #888;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .positive {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        .negative {
+            color: #f87171;
+            font-weight: 600;
+        }
+
+        .zero {
+            color: #888;
+        }
+
+        .summary {
+            display: flex;
+            gap: 24px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .summary-card {
+            background: #0f0f1a;
+            padding: 16px 20px;
+            border-radius: 8px;
+            min-width: 140px;
+        }
+
+        .summary-card .label {
+            color: #888;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .summary-card .value {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .error {
+            background: #3d1515;
+            border: 1px solid #7f1d1d;
+            color: #fca5a5;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        .error.visible {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid #2a3a5a;
+            border-top-color: #4a6fa5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 12px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .game-link {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 8px;
+        }
+
+        .game-link a {
+            color: #4a6fa5;
+            text-decoration: none;
+        }
+
+        .game-link a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>PokerNow Ledger</h1>
-        <p>Coming soon</p>
+        <p class="subtitle">View player results from any PokerNow game</p>
+
+        <div class="input-section">
+            <h2>Enter Game Link</h2>
+            <div class="input-row">
+                <input type="text" id="gameLink" placeholder="https://www.pokernow.club/games/pgl...">
+                <button id="fetchBtn">Get Results</button>
+            </div>
+            <div class="error" id="error"></div>
+        </div>
+
+        <div class="results" id="results">
+            <h2>Game Results</h2>
+            <div class="game-link" id="gameInfo"></div>
+            
+            <div class="summary" id="summary"></div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Buy-In</th>
+                        <th>Stack</th>
+                        <th>Net P/L</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                </tbody>
+            </table>
+        </div>
     </div>
+
+    <script>
+        const gameLink = document.getElementById('gameLink');
+        const fetchBtn = document.getElementById('fetchBtn');
+        const results = document.getElementById('results');
+        const resultsBody = document.getElementById('resultsBody');
+        const summary = document.getElementById('summary');
+        const gameInfo = document.getElementById('gameInfo');
+        const errorDiv = document.getElementById('error');
+
+        fetchBtn.addEventListener('click', fetchGame);
+        gameLink.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') fetchGame();
+        });
+
+        async function fetchGame() {
+            const url = gameLink.value.trim();
+            
+            // Extract game ID from URL
+            const match = url.match(/pokernow\.club\/games\/(pgl[a-zA-Z0-9_-]+)/);
+            if (!match) {
+                showError('Invalid PokerNow link. URL should look like: https://www.pokernow.club/games/pgl...');
+                return;
+            }
+
+            const gameId = match[1];
+            hideError();
+            
+            fetchBtn.disabled = true;
+            fetchBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`https://www.pokernow.club/games/${gameId}/players_sessions`);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch game data (${response.status})`);
+                }
+
+                const data = await response.json();
+                displayResults(data, gameId);
+            } catch (err) {
+                if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
+                    showError('Unable to fetch directly due to browser restrictions. Try the CORS proxy or paste the JSON data manually.');
+                } else {
+                    showError(`Error: ${err.message}`);
+                }
+            } finally {
+                fetchBtn.disabled = false;
+                fetchBtn.textContent = 'Get Results';
+            }
+        }
+
+        function displayResults(data, gameId) {
+            const playersInfos = data.playersInfos;
+            
+            // Convert to array and sort by net (descending)
+            const players = Object.values(playersInfos).map(p => ({
+                name: p.names[0] || 'Unknown',
+                buyIn: p.buyInSum,
+                stack: p.inGame,
+                net: p.net
+            })).sort((a, b) => b.net - a.net);
+
+            // Calculate summary stats
+            const totalPlayers = players.length;
+            const winners = players.filter(p => p.net > 0).length;
+            const totalBuyIn = data.buyInTotal;
+            const biggestWin = Math.max(...players.map(p => p.net));
+            const biggestLoss = Math.min(...players.map(p => p.net));
+
+            gameInfo.innerHTML = `<a href="https://www.pokernow.club/games/${gameId}" target="_blank">View game on PokerNow →</a>`;
+
+            summary.innerHTML = `
+                <div class="summary-card">
+                    <div class="label">Players</div>
+                    <div class="value">${totalPlayers}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Winners</div>
+                    <div class="value positive">${winners}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Buy-In</div>
+                    <div class="value">${formatNumber(totalBuyIn)}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Biggest Win</div>
+                    <div class="value positive">+${formatNumber(biggestWin)}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Biggest Loss</div>
+                    <div class="value negative">${formatNumber(biggestLoss)}</div>
+                </div>
+            `;
+
+            resultsBody.innerHTML = players.map(player => `
+                <tr>
+                    <td>${escapeHtml(player.name)}</td>
+                    <td>${formatNumber(player.buyIn)}</td>
+                    <td>${formatNumber(player.stack)}</td>
+                    <td class="${player.net > 0 ? 'positive' : player.net < 0 ? 'negative' : 'zero'}">
+                        ${player.net >= 0 ? '+' : ''}${formatNumber(player.net)}
+                    </td>
+                </tr>
+            `).join('');
+
+            results.classList.add('visible');
+        }
+
+        function formatNumber(num) {
+            return num.toLocaleString('en-US');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.add('visible');
+            results.classList.remove('visible');
+        }
+
+        function hideError() {
+            errorDiv.classList.remove('visible');
+        }
+    </script>
 </body>
 </html>
