@@ -294,6 +294,130 @@
             text-align: center;
             padding: 20px 0;
         }
+
+        /* ── Merge Players Section ── */
+        .merge-section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            display: none;
+        }
+
+        .merge-section.visible {
+            display: block;
+        }
+
+        .merge-player-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .merge-chip {
+            padding: 6px 14px;
+            border-radius: 20px;
+            background: #0f0f1a;
+            border: 2px solid #2a3a5a;
+            color: #ccc;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            user-select: none;
+        }
+
+        .merge-chip:hover {
+            border-color: #4a6fa5;
+            color: #fff;
+        }
+
+        .merge-chip.selected {
+            border-color: #4a6fa5;
+            background: #2a3a5a;
+            color: #fff;
+        }
+
+        .merge-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .merge-controls select {
+            flex: 1;
+            padding: 10px 14px;
+            border: 2px solid #2a3a5a;
+            border-radius: 8px;
+            background: #0f0f1a;
+            color: #eee;
+            font-size: 0.9rem;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        .merge-controls select:focus {
+            outline: none;
+            border-color: #4a6fa5;
+        }
+
+        .merge-btn {
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+
+        .merge-info {
+            color: #666;
+            font-size: 0.8rem;
+            margin-bottom: 14px;
+        }
+
+        .merged-groups {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #2a3a5a;
+        }
+
+        .merged-group-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #0f0f1a;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        .merged-group-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .merged-group-names {
+            color: #aaa;
+        }
+
+        .merged-group-primary {
+            color: #4ade80;
+            font-weight: 600;
+        }
+
+        .undo-merge-btn {
+            background: transparent;
+            border: none;
+            color: #f87171;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            opacity: 0.6;
+            transition: opacity 0.15s;
+        }
+
+        .undo-merge-btn:hover {
+            opacity: 1;
+            background: transparent;
+        }
     </style>
 </head>
 <body>
@@ -312,6 +436,20 @@
         <div class="results" id="results">
             <div id="settlements"></div>
             <div class="hint">Click anywhere to copy all</div>
+        </div>
+
+        <!-- Merge Players Section -->
+        <div class="merge-section" id="mergeSection">
+            <h3 class="section-header">Merge Duplicate Players</h3>
+            <p class="merge-info">Select names that belong to the same person, pick the primary name, then merge.</p>
+            <div class="merge-player-list" id="mergePlayerList"></div>
+            <div class="merge-controls">
+                <select id="mergePrimary">
+                    <option value="">Keep name as...</option>
+                </select>
+                <button class="merge-btn" id="mergeBtn" disabled>Merge</button>
+            </div>
+            <div class="merged-groups" id="mergedGroups"></div>
         </div>
 
         <div class="leaderboard-section" id="leaderboardSection">
@@ -339,9 +477,20 @@
         const gamesList = document.getElementById('gamesList');
         const leaderboardSection = document.getElementById('leaderboardSection');
         const leaderboardList = document.getElementById('leaderboardList');
+        const mergeSection = document.getElementById('mergeSection');
+        const mergePlayerList = document.getElementById('mergePlayerList');
+        const mergePrimary = document.getElementById('mergePrimary');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const mergedGroupsDiv = document.getElementById('mergedGroups');
 
         // Store all games data in order: [{ gameId, data }]
         const games = [];
+
+        // Name merges: array of { primary: string, aliases: string[] }
+        const merges = [];
+
+        // Currently selected names for merging
+        const selectedForMerge = new Set();
 
         fetchBtn.addEventListener('click', fetchGames);
         gameLink.addEventListener('keypress', (e) => {
@@ -350,6 +499,7 @@
 
         results.addEventListener('click', copyAllSettlements);
         leaderboardSection.addEventListener('click', copyLeaderboard);
+        mergeBtn.addEventListener('click', performMerge);
 
         async function fetchGames() {
             const input = gameLink.value.trim();
@@ -403,8 +553,116 @@
             updateDisplay();
         }
 
+        // Resolve a raw name to its merged primary name
+        function resolveName(name) {
+            for (const merge of merges) {
+                if (merge.primary === name || merge.aliases.includes(name)) {
+                    return merge.primary;
+                }
+            }
+            return name;
+        }
+
+        // Get all unique raw names from game data
+        function getAllRawNames() {
+            const names = new Set();
+            for (const { data } of games) {
+                for (const playerId of Object.keys(data.playersInfos)) {
+                    const player = data.playersInfos[playerId];
+                    const name = player.names[0] || 'Unknown';
+                    names.add(name);
+                }
+            }
+            return [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        }
+
+        // Get names that haven't been merged yet
+        function getUnmergedNames() {
+            const allMerged = new Set();
+            for (const merge of merges) {
+                allMerged.add(merge.primary);
+                merge.aliases.forEach(a => allMerged.add(a));
+            }
+            return getAllRawNames().filter(n => !allMerged.has(n));
+        }
+
+        function toggleMergeSelection(name) {
+            if (selectedForMerge.has(name)) {
+                selectedForMerge.delete(name);
+            } else {
+                selectedForMerge.add(name);
+            }
+            renderMergeUI();
+        }
+
+        function renderMergeUI() {
+            const unmerged = getUnmergedNames();
+
+            // Render chips
+            mergePlayerList.innerHTML = unmerged.map(name => {
+                const isSelected = selectedForMerge.has(name);
+                return `<div class="merge-chip ${isSelected ? 'selected' : ''}" onclick="toggleMergeSelection('${escapeAttr(name)}')">${escapeHtml(name)}</div>`;
+            }).join('');
+
+            // Update the "keep as" dropdown with only selected names
+            const selected = [...selectedForMerge];
+            const prevValue = mergePrimary.value;
+            mergePrimary.innerHTML = '<option value="">Keep name as...</option>' +
+                selected.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
+
+            // Restore selection if still valid
+            if (selected.includes(prevValue)) {
+                mergePrimary.value = prevValue;
+            }
+
+            mergeBtn.disabled = selected.length < 2 || !mergePrimary.value;
+
+            // Render existing merge groups
+            if (merges.length > 0) {
+                mergedGroupsDiv.innerHTML = '<div class="section-header" style="margin-top:4px;">Active Merges</div>' +
+                    merges.map((merge, i) => {
+                        const allNames = [merge.primary, ...merge.aliases];
+                        return `<div class="merged-group-item">
+                            <span>
+                                <span class="merged-group-primary">${escapeHtml(merge.primary)}</span>
+                                <span class="merged-group-names"> ← ${merge.aliases.map(a => escapeHtml(a)).join(', ')}</span>
+                            </span>
+                            <button class="undo-merge-btn" onclick="undoMerge(${i})">undo</button>
+                        </div>`;
+                    }).join('');
+            } else {
+                mergedGroupsDiv.innerHTML = '';
+            }
+        }
+
+        function performMerge() {
+            const primary = mergePrimary.value;
+            const selected = [...selectedForMerge];
+
+            if (selected.length < 2 || !primary) return;
+
+            const aliases = selected.filter(n => n !== primary);
+            merges.push({ primary, aliases });
+
+            selectedForMerge.clear();
+            mergePrimary.value = '';
+
+            updateDisplay();
+        }
+
+        function undoMerge(index) {
+            merges.splice(index, 1);
+            updateDisplay();
+        }
+
+        // Listen for dropdown changes to enable/disable merge button
+        mergePrimary.addEventListener('change', () => {
+            const selected = [...selectedForMerge];
+            mergeBtn.disabled = selected.length < 2 || !mergePrimary.value;
+        });
+
         function updateDisplay() {
-            // Aggregate all players across all games
+            // Aggregate all players across all games, applying merges
             const aggregated = {};
             const playerGameResults = {};
 
@@ -412,7 +670,8 @@
                 const { gameId, data } = games[i];
                 for (const playerId of Object.keys(data.playersInfos)) {
                     const player = data.playersInfos[playerId];
-                    const name = player.names[0] || 'Unknown';
+                    const rawName = player.names[0] || 'Unknown';
+                    const name = resolveName(rawName);
                     
                     if (!aggregated[name]) {
                         aggregated[name] = 0;
@@ -425,8 +684,17 @@
             // Build game-by-game results for each player
             for (const name of Object.keys(aggregated)) {
                 playerGameResults[name] = games.map(({ data }) => {
-                    const playerEntry = Object.values(data.playersInfos).find(p => p.names[0] === name);
-                    return playerEntry ? playerEntry.net : null;
+                    // Sum all entries for this player in this game (could be multiple raw names)
+                    let total = 0;
+                    let found = false;
+                    for (const p of Object.values(data.playersInfos)) {
+                        const rawName = p.names[0] || 'Unknown';
+                        if (resolveName(rawName) === name) {
+                            total += p.net;
+                            found = true;
+                        }
+                    }
+                    return found ? total : null;
                 });
             }
 
@@ -450,6 +718,19 @@
                     return `<div class="settlement-item">${text}</div>`;
                 }).join('');
                 results.classList.add('visible');
+            }
+
+            // Update merge section
+            if (games.length === 0) {
+                mergeSection.classList.remove('visible');
+            } else {
+                mergeSection.classList.add('visible');
+                // Clean selectedForMerge of names that no longer exist
+                const allRaw = new Set(getAllRawNames());
+                for (const name of [...selectedForMerge]) {
+                    if (!allRaw.has(name)) selectedForMerge.delete(name);
+                }
+                renderMergeUI();
             }
 
             // Update games list
@@ -561,6 +842,10 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            return text.replace(/'/g, "\\'").replace(/"/g, '&quot;');
         }
 
         function showToast() {
