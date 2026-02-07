@@ -6,7 +6,7 @@ export default async function handler(req, res) {
     }
 
     try {
-        const response = await fetch(`https://www.pokernow.club/games/${gameId}/players_sessions`);
+        const response = await fetch(`https://www.pokernow.com/games/${gameId}/players_sessions`);
         
         if (!response.ok) {
             return res.status(response.status).json({ error: 'Failed to fetch from PokerNow' });

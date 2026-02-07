@@ -354,7 +354,7 @@
         async function fetchGames() {
             const input = gameLink.value.trim();
             
-            const matches = [...input.matchAll(/pokernow\.club\/games\/(pgl[a-zA-Z0-9_-]+)/g)];
+            const matches = [...input.matchAll(/pokernow\.(?:club|com)\/games\/(pgl[a-zA-Z0-9_-]+)/g)];
             
             if (matches.length === 0) {
                 showError('No valid PokerNow links found.');
