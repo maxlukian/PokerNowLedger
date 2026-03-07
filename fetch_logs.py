@@ -123,7 +123,13 @@ def parse_hand_data(logs):
                 "all_ins": [],
                 "winners": set(),
                 "community_cards": [],
+                "street": "preflop",
+                "players_in_hand": set(),
+                "player_actions": {},  # player -> {preflop: [], flop: [], turn: [], river: []}
             }
+
+            # Parse player stacks to get list of players dealt in
+            # (next entry is usually "Player stacks: ...")
 
         if not current_hand_id or current_hand_id not in hands:
             continue
@@ -131,17 +137,53 @@ def parse_hand_data(logs):
         hand = hands[current_hand_id]
         hand["entries"].append(entry)
 
+        # Track player stacks (players dealt into the hand)
+        stacks_match = re.search(r'Player stacks:', msg)
+        if stacks_match:
+            for m in re.finditer(r'"(.+?) @', msg):
+                player = m.group(1)
+                hand["players_in_hand"].add(player)
+                if player not in hand["player_actions"]:
+                    hand["player_actions"][player] = {"preflop": [], "flop": [], "turn": [], "river": []}
+
+        # Track street transitions
+        if msg.startswith("Flop:"):
+            hand["street"] = "flop"
+        elif msg.startswith("Turn:"):
+            hand["street"] = "turn"
+        elif msg.startswith("River:"):
+            hand["street"] = "river"
+            river_match = re.search(r'River: (.+)', msg)
+            if river_match:
+                hand["community_cards"] = river_match.group(1)
+
+        # Track player actions (bets, calls, raises, checks, folds)
+        action_match = re.search(r'"(.+?) @.+?" (bets|calls|raises|checks|folds)(.*)', msg)
+        if action_match:
+            player = action_match.group(1)
+            action = action_match.group(2)
+            if player not in hand["player_actions"]:
+                hand["player_actions"][player] = {"preflop": [], "flop": [], "turn": [], "river": []}
+            hand["player_actions"][player][hand["street"]].append(action)
+
+        # Track blinds (these count as voluntary for big blind defense scenarios,
+        # but standard VPIP excludes forced blinds)
+        blind_match = re.search(r'"(.+?) @.+?" posts a (small|big) blind', msg)
+        if blind_match:
+            player = blind_match.group(1)
+            if player not in hand["player_actions"]:
+                hand["player_actions"][player] = {"preflop": [], "flop": [], "turn": [], "river": []}
+            hand["player_actions"][player]["preflop"].append(f"post_{blind_match.group(2)}")
+
         # Track pot collections
         pot_match = re.search(r'"(.+?) @.+?" collected (\d+) from pot(.*)', msg)
         if pot_match:
             name = pot_match.group(1)
             amount = int(pot_match.group(2))
             detail = pot_match.group(3).strip()
-            # Extract hand name from detail like "with Full House, K's over 7's"
             hand_name = ""
             hand_rank = 0
             if detail.startswith("with "):
-                # Handle "with hi hand with X" and "with low hand with X" patterns
                 clean = re.sub(r'^with (hi hand with |low hand with )?', '', detail)
                 hand_name = clean.split(" (combination")[0]
                 for rank_name, rank_val in HAND_RANKS.items():
@@ -173,11 +215,6 @@ def parse_hand_data(logs):
                 "action": allin_match.group(2),
                 "amount": int(allin_match.group(3)),
             })
-
-        # Track community cards
-        river_match = re.search(r'River: (.+)', msg)
-        if river_match:
-            hand["community_cards"] = river_match.group(1)
 
     return hands
 
@@ -274,6 +311,112 @@ def extract_all_in_showdowns(hands, limit=10):
     return showdowns[:limit]
 
 
+def extract_player_stats(hands):
+    """Extract per-player VPIP (overall + by street) and hand type distribution."""
+    player_stats = {}  # player -> stats dict
+
+    for hand_id, hand in hands.items():
+        for player, actions in hand["player_actions"].items():
+            if player not in player_stats:
+                player_stats[player] = {
+                    "handsDealt": 0,
+                    "vpipHands": 0,
+                    "sawFlop": 0,
+                    "sawTurn": 0,
+                    "sawRiver": 0,
+                    "wentToShowdown": 0,
+                    "handTypes": {},
+                }
+
+            stats = player_stats[player]
+            stats["handsDealt"] += 1
+
+            # VPIP: voluntarily put money in preflop (calls or raises, NOT forced blinds)
+            preflop_actions = actions.get("preflop", [])
+            voluntary_preflop = [a for a in preflop_actions
+                                 if a in ("calls", "raises", "bets")]
+            if voluntary_preflop:
+                stats["vpipHands"] += 1
+
+            # Street participation: did the player act on this street (not fold)?
+            if actions.get("flop") and "folds" not in actions["flop"]:
+                stats["sawFlop"] += 1
+            elif actions.get("flop"):
+                stats["sawFlop"] += 1  # they were there even if they folded on flop
+
+            if actions.get("turn"):
+                stats["sawTurn"] += 1
+
+            if actions.get("river"):
+                stats["sawRiver"] += 1
+
+            # Showdown: player showed cards
+            if any(s["player"] == player for s in hand["shown_hands"]):
+                stats["wentToShowdown"] += 1
+
+        # Hand types won
+        for pot in hand["pots"]:
+            player = pot["player"]
+            hand_name = pot["handName"]
+            if not hand_name:
+                hand_name = "Unknown/No Showdown"
+
+            # Normalize hand type to category
+            category = categorize_hand(hand_name)
+
+            if player not in player_stats:
+                continue
+            ht = player_stats[player]["handTypes"]
+            ht[category] = ht.get(category, 0) + 1
+
+    # Convert to serializable format
+    result = {}
+    for player, stats in player_stats.items():
+        result[player] = {
+            "handsDealt": stats["handsDealt"],
+            "vpipHands": stats["vpipHands"],
+            "vpipPct": round(100 * stats["vpipHands"] / max(stats["handsDealt"], 1), 1),
+            "sawFlop": stats["sawFlop"],
+            "sawFlopPct": round(100 * stats["sawFlop"] / max(stats["handsDealt"], 1), 1),
+            "sawTurn": stats["sawTurn"],
+            "sawTurnPct": round(100 * stats["sawTurn"] / max(stats["handsDealt"], 1), 1),
+            "sawRiver": stats["sawRiver"],
+            "sawRiverPct": round(100 * stats["sawRiver"] / max(stats["handsDealt"], 1), 1),
+            "wentToShowdown": stats["wentToShowdown"],
+            "showdownPct": round(100 * stats["wentToShowdown"] / max(stats["handsDealt"], 1), 1),
+            "handTypes": stats["handTypes"],
+        }
+
+    return result
+
+
+def categorize_hand(hand_name):
+    """Normalize a hand description to a standard category."""
+    hn = hand_name.lower()
+    if "royal flush" in hn:
+        return "Royal Flush"
+    elif "straight flush" in hn:
+        return "Straight Flush"
+    elif "four of a kind" in hn:
+        return "Four of a Kind"
+    elif "full house" in hn:
+        return "Full House"
+    elif "flush" in hn:
+        return "Flush"
+    elif "straight" in hn:
+        return "Straight"
+    elif "three of a kind" in hn:
+        return "Three of a Kind"
+    elif "two pair" in hn:
+        return "Two Pair"
+    elif "pair" in hn:
+        return "Pair"
+    elif "high card" in hn or "high" in hn:
+        return "High Card"
+    else:
+        return "Unknown/No Showdown"
+
+
 def store_game_log(game_id, logs, parsed):
     """Store log chunks and summary in Firestore."""
     game_ref = db.collection("games").document(game_id)
@@ -306,13 +449,15 @@ def store_game_log(game_id, logs, parsed):
         "biggestPots": parsed["biggestPots"],
         "badBeats": parsed["badBeats"],
         "allInShowdowns": parsed["allInShowdowns"],
+        "playerStats": parsed["playerStats"],
     })
 
     bp = len(parsed["biggestPots"])
     bb = len(parsed["badBeats"])
     ai = len(parsed["allInShowdowns"])
+    ps = len(parsed["playerStats"])
     print(f"    Stored {chunk_count} chunks ({len(logs)} entries), {hand_count} hands")
-    print(f"    Stats: {bp} biggest pots, {bb} bad beats, {ai} all-in showdowns")
+    print(f"    Stats: {bp} biggest pots, {bb} bad beats, {ai} all-in showdowns, {ps} player stats")
 
 
 def main():
@@ -364,6 +509,7 @@ def main():
             "biggestPots": extract_biggest_pots(hands),
             "badBeats": extract_bad_beats(hands),
             "allInShowdowns": extract_all_in_showdowns(hands),
+            "playerStats": extract_player_stats(hands),
         }
         store_game_log(game_id, logs, parsed)
         fetched += 1

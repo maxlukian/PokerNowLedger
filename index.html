@@ -750,12 +750,17 @@
                     <h3 class="section-header" style="margin-bottom:0">Cumulative P&L</h3>
                     <button class="fullscreen-btn" onclick="toggleChartFullscreen()">Full Screen</button>
                 </div>
-                <div style="display:flex;gap:8px;margin:10px 0;">
+                <div style="display:flex;gap:8px;margin:10px 0;align-items:center;flex-wrap:wrap;">
                     <button class="chart-toggle-btn" onclick="toggleAllDatasets(true)">Show All</button>
                     <button class="chart-toggle-btn" onclick="toggleAllDatasets(false)">Hide All</button>
+                    <span style="color:#888;font-size:0.8rem;margin-left:auto;" id="chartRangeLabel"></span>
                 </div>
                 <div class="chart-container">
                     <canvas id="pnlChart"></canvas>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;margin-top:10px;">
+                    <input type="range" id="chartRangeMin" min="0" max="100" value="0" style="flex:1;accent-color:#4a6fa5;">
+                    <input type="range" id="chartRangeMax" min="0" max="100" value="100" style="flex:1;accent-color:#4a6fa5;">
                 </div>
             </div>
 
@@ -1470,9 +1475,52 @@
             const ctx = document.getElementById('pnlChart').getContext('2d');
             if (pnlChart) pnlChart.destroy();
 
+            // Format dates for display (e.g., "Jan 15" or "Jan 15 '26")
+            const formatDateLabel = d => {
+                const dt = new Date(d + 'T00:00:00');
+                const mon = dt.toLocaleString('en-US', { month: 'short' });
+                const day = dt.getDate();
+                return `${mon} ${day}`;
+            };
+            const formattedDates = allDates.map(formatDateLabel);
+
+            // Store full data for range slider
+            window._chartAllDates = allDates;
+            window._chartFormattedDates = formattedDates;
+            window._chartDatasets = datasets;
+
+            // Setup range sliders
+            const rangeMin = document.getElementById('chartRangeMin');
+            const rangeMax = document.getElementById('chartRangeMax');
+            rangeMin.max = allDates.length - 1;
+            rangeMax.max = allDates.length - 1;
+            rangeMin.value = 0;
+            rangeMax.value = allDates.length - 1;
+
+            function updateChartRange() {
+                const lo = parseInt(rangeMin.value);
+                const hi = parseInt(rangeMax.value);
+                if (lo >= hi) return;
+                const slicedLabels = formattedDates.slice(lo, hi + 1);
+                const slicedDatasets = datasets.map(ds => ({
+                    ...ds,
+                    data: ds.data.slice(lo, hi + 1),
+                }));
+                pnlChart.data.labels = slicedLabels;
+                pnlChart.data.datasets.forEach((ds, i) => {
+                    ds.data = slicedDatasets[i].data;
+                });
+                pnlChart.update('none');
+                document.getElementById('chartRangeLabel').textContent =
+                    `${allDates[lo]} to ${allDates[hi]}`;
+            }
+
+            rangeMin.addEventListener('input', updateChartRange);
+            rangeMax.addEventListener('input', updateChartRange);
+
             pnlChart = new Chart(ctx, {
                 type: 'line',
-                data: { labels: allDates, datasets },
+                data: { labels: formattedDates, datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
@@ -1509,6 +1557,8 @@
                     }
                 }
             });
+            document.getElementById('chartRangeLabel').textContent =
+                `${allDates[0]} to ${allDates[allDates.length - 1]}`;
 
             // Compute overall date span for annualization
             const firstDate = new Date(allDates[0]);
@@ -1587,22 +1637,25 @@
 
             for (const game of allHistoricalGames) {
                 const date = game.date;
+                const gid = game.gameId;
                 if (game.biggestPots) {
                     for (const pot of game.biggestPots) {
-                        allBiggestPots.push({ ...pot, gameDate: date });
+                        allBiggestPots.push({ ...pot, gameDate: date, gameId: gid });
                     }
                 }
                 if (game.badBeats) {
                     for (const bb of game.badBeats) {
-                        allBadBeats.push({ ...bb, gameDate: date });
+                        allBadBeats.push({ ...bb, gameDate: date, gameId: gid });
                     }
                 }
                 if (game.allInShowdowns) {
                     for (const ai of game.allInShowdowns) {
-                        allInShowdowns.push({ ...ai, gameDate: date });
+                        allInShowdowns.push({ ...ai, gameDate: date, gameId: gid });
                     }
                 }
             }
+
+            const gameUrl = (gid) => `https://www.pokernow.com/games/${gid}`;
 
             allBiggestPots.sort((a, b) => b.totalPot - a.totalPot);
             allBadBeats.sort((a, b) => b.totalPot - a.totalPot);
@@ -1627,25 +1680,27 @@
                     return `<span class="hand-winner">${escapeHtml(name)}</span>` +
                            (hand ? ` <span class="hand-detail">${escapeHtml(hand)}</span>` : '');
                 }).join('<br>');
-                return `<div class="hand-card">
+                return `<a href="${gameUrl(pot.gameId)}" target="_blank" style="text-decoration:none;display:block;">
+                <div class="hand-card">
                     <div class="hand-rank">#${i + 1} &middot; Hand #${pot.handNum} &middot; ${pot.gameDate}</div>
                     <div class="hand-pot">$${formatAmount(pot.totalPot)}</div>
                     ${winnerLines}
-                </div>`;
+                </div></a>`;
             }).join('') || '<div style="color:#888">No data yet</div>';
 
             // Render bad beats
             document.getElementById('badBeatsCards').innerHTML = allBadBeats.slice(0, 10).map((bb, i) => {
                 const loser = resolveName(bb.loser);
                 const winner = resolveName(bb.winner);
-                return `<div class="hand-card bad-beat">
+                return `<a href="${gameUrl(bb.gameId)}" target="_blank" style="text-decoration:none;display:block;">
+                <div class="hand-card bad-beat">
                     <div class="hand-rank">#${i + 1} &middot; Hand #${bb.handNum} &middot; ${bb.gameDate}</div>
                     <div class="hand-pot">$${formatAmount(bb.totalPot)} pot</div>
                     <div class="hand-winner">${escapeHtml(loser)} lost</div>
                     <div class="hand-cards">Showed: ${escapeHtml(bb.loserCards)}</div>
                     <div class="hand-detail">to ${escapeHtml(winner)} ${bb.winnerHand ? 'with ' + escapeHtml(bb.winnerHand) : ''}</div>
                     ${bb.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(bb.communityCards)}</div>` : ''}
-                </div>`;
+                </div></a>`;
             }).join('') || '<div style="color:#888">No data yet</div>';
 
             // Render all-in showdowns
@@ -1656,13 +1711,14 @@
                     return `<span class="${won ? 'hand-winner' : 'hand-detail'}">${escapeHtml(name)}: <span class="hand-cards">${escapeHtml(s.cards)}</span>${won ? ' ✓' : ''}</span>`;
                 }).join('<br>');
                 const winnerHands = ai.winners.map(w => w.handName).filter(Boolean).join(', ');
-                return `<div class="hand-card allin">
+                return `<a href="${gameUrl(ai.gameId)}" target="_blank" style="text-decoration:none;display:block;">
+                <div class="hand-card allin">
                     <div class="hand-rank">#${i + 1} &middot; Hand #${ai.handNum} &middot; ${ai.gameDate}</div>
                     <div class="hand-pot">$${formatAmount(ai.totalPot)}</div>
                     ${players}
                     ${winnerHands ? `<div class="hand-detail">Won with: ${escapeHtml(winnerHands)}</div>` : ''}
                     ${ai.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(ai.communityCards)}</div>` : ''}
-                </div>`;
+                </div></a>`;
             }).join('') || '<div style="color:#888">No data yet</div>';
         }
 
