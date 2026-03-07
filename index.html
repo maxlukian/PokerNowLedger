@@ -623,7 +623,8 @@
                                 <th data-sort="avgPnL">Avg P&L</th>
                                 <th data-sort="best">Best</th>
                                 <th data-sort="worst">Worst</th>
-                                <th data-sort="variance">Variance</th>
+                                <th data-sort="stdPerGame">Std/Game</th>
+                                <th data-sort="annualRange">Annual Range</th>
                             </tr>
                         </thead>
                         <tbody id="performanceBody"></tbody>
@@ -1234,7 +1235,7 @@
             const performanceBody = document.getElementById('performanceBody');
 
             if (!historyLoaded) {
-                performanceBody.innerHTML = '<tr><td colspan="7" class="history-loading">Loading...</td></tr>';
+                performanceBody.innerHTML = '<tr><td colspan="8" class="history-loading">Loading...</td></tr>';
                 setTimeout(renderHistory, 500);
                 return;
             }
@@ -1242,7 +1243,7 @@
             const games = allHistoricalGames.slice().sort((a, b) => a.date.localeCompare(b.date));
 
             if (games.length === 0) {
-                performanceBody.innerHTML = '<tr><td colspan="7" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
+                performanceBody.innerHTML = '<tr><td colspan="8" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
                 if (pnlChart) { pnlChart.destroy(); pnlChart = null; }
                 return;
             }
@@ -1351,6 +1352,11 @@
                 }
             });
 
+            // Compute overall date span for annualization
+            const firstDate = new Date(allDates[0]);
+            const lastDate = new Date(allDates[allDates.length - 1]);
+            const totalDays = Math.max((lastDate - firstDate) / (1000 * 60 * 60 * 24), 1);
+
             // Render performance table
             const rows = [];
             for (const [name, results] of Object.entries(playerData)) {
@@ -1361,9 +1367,18 @@
                 const worst = Math.min(...results.map(r => r.net));
                 const mean = totalPnL / gameCount;
                 const variance = gameCount > 1
-                    ? Math.round(results.reduce((s, r) => s + Math.pow(r.net - mean, 2), 0) / (gameCount - 1))
+                    ? results.reduce((s, r) => s + Math.pow(r.net - mean, 2), 0) / (gameCount - 1)
                     : 0;
-                rows.push({ name, gameCount, totalPnL, avgPnL, best, worst, variance });
+                const stdPerGame = Math.round(Math.sqrt(variance));
+
+                // Annualize: estimate games/year from this player's frequency
+                const gamesPerYear = gameCount / totalDays * 365;
+                const annualMean = Math.round(mean * gamesPerYear);
+                const annualStd = Math.round(Math.sqrt(variance * gamesPerYear));
+                const annualLo = annualMean - 2 * annualStd;
+                const annualHi = annualMean + 2 * annualStd;
+
+                rows.push({ name, gameCount, totalPnL, avgPnL, best, worst, stdPerGame, annualRange: annualMean, annualLo, annualHi, annualStd });
             }
 
             rows.sort((a, b) => {
@@ -1388,6 +1403,8 @@
 
             performanceBody.innerHTML = rows.map(row => {
                 const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
+                const fmtVal = v => `${v >= 0 ? '+' : '-'}$${formatAmount(v)}`;
+                const fmtRange = `${fmtVal(row.annualLo)} to ${fmtVal(row.annualHi)}`;
                 return `<tr>
                     <td style="font-weight:600">${escapeHtml(row.name)}</td>
                     <td>${row.gameCount}</td>
@@ -1395,7 +1412,8 @@
                     <td class="${cls(row.avgPnL)}">${formatSigned(row.avgPnL)}</td>
                     <td class="${cls(row.best)}">${formatSigned(row.best)}</td>
                     <td class="${cls(row.worst)}">${formatSigned(row.worst)}</td>
-                    <td style="color:#aaa">${row.variance.toLocaleString()}</td>
+                    <td style="color:#aaa">$${formatAmount(row.stdPerGame)}</td>
+                    <td class="${cls(row.annualRange)}" style="white-space:nowrap">${fmtRange}</td>
                 </tr>`;
             }).join('');
         }
