@@ -488,7 +488,38 @@
 
         .chart-container {
             position: relative;
-            height: 350px;
+            height: 500px;
+        }
+
+        .chart-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .fullscreen-btn {
+            background: #1e2d44;
+            color: #ccc;
+            border: 1px solid #2a3a5a;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        .fullscreen-btn:hover { background: #2a3a5a; color: #fff; }
+
+        .chart-fullscreen {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9999;
+            background: #16213e;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+        }
+        .chart-fullscreen .chart-container {
+            flex: 1;
+            height: auto;
         }
 
         .history-empty {
@@ -656,9 +687,12 @@
                 </div>
             </div>
 
-            <div class="history-section">
-                <h3 class="section-header">Cumulative P&L</h3>
-                <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <div class="history-section" id="chartSection">
+                <div class="chart-section-header">
+                    <h3 class="section-header" style="margin-bottom:0">Cumulative P&L</h3>
+                    <button class="fullscreen-btn" onclick="toggleChartFullscreen()">Full Screen</button>
+                </div>
+                <div style="display:flex;gap:8px;margin:10px 0;">
                     <button class="chart-toggle-btn" onclick="toggleAllDatasets(true)">Show All</button>
                     <button class="chart-toggle-btn" onclick="toggleAllDatasets(false)">Hide All</button>
                 </div>
@@ -741,6 +775,14 @@
                 pnlChart.setDatasetVisibility(i, show);
             });
             pnlChart.update();
+        }
+
+        function toggleChartFullscreen() {
+            const section = document.getElementById('chartSection');
+            const btn = section.querySelector('.fullscreen-btn');
+            section.classList.toggle('chart-fullscreen');
+            btn.textContent = section.classList.contains('chart-fullscreen') ? 'Exit Full Screen' : 'Full Screen';
+            pnlChart.resize();
         }
 
         // ── Event listeners ──
