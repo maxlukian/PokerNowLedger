@@ -599,6 +599,64 @@
         }
         .chart-toggle-btn:hover { background: #2a3a5a; color: #fff; }
 
+        .hand-card {
+            background: #1a2744;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
+            border-left: 3px solid #4a6fa5;
+        }
+        .hand-card .hand-rank {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .hand-card .hand-pot {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #4ade80;
+            margin-bottom: 4px;
+        }
+        .hand-card .hand-winner {
+            color: #ccc;
+            font-size: 0.9rem;
+        }
+        .hand-card .hand-detail {
+            color: #888;
+            font-size: 0.8rem;
+            margin-top: 4px;
+        }
+        .hand-card .hand-cards {
+            color: #fbbf24;
+            font-size: 0.85rem;
+        }
+        .hand-card.bad-beat {
+            border-left-color: #f87171;
+        }
+        .hand-card.bad-beat .hand-pot {
+            color: #f87171;
+        }
+        .hand-card.allin {
+            border-left-color: #fbbf24;
+        }
+        .hand-card.allin .hand-pot {
+            color: #fbbf24;
+        }
+        .hand-highlights-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 24px;
+        }
+        .hand-highlights-column h4 {
+            color: #ccc;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #2a3a5a;
+        }
+
         @media (max-width: 500px) {
             .chart-container {
                 height: 260px;
@@ -698,6 +756,25 @@
                 </div>
                 <div class="chart-container">
                     <canvas id="pnlChart"></canvas>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Hand Highlights</h3>
+                <div id="handHighlightsLoading" style="color:#888;text-align:center;padding:20px;">Loading hand data...</div>
+                <div class="hand-highlights-grid" id="handHighlights" style="display:none;">
+                    <div class="hand-highlights-column">
+                        <h4>Biggest Pots</h4>
+                        <div id="biggestPotsCards"></div>
+                    </div>
+                    <div class="hand-highlights-column">
+                        <h4>Bad Beats</h4>
+                        <div id="badBeatsCards"></div>
+                    </div>
+                    <div class="hand-highlights-column">
+                        <h4>All-In Showdowns</h4>
+                        <div id="allInCards"></div>
+                    </div>
                 </div>
             </div>
 
@@ -1497,6 +1574,96 @@
                     <td style="white-space:nowrap">${fmtRange}</td>
                 </tr>`;
             }).join('');
+
+            // Render hand highlights
+            loadHandHighlights();
+        }
+
+        function loadHandHighlights() {
+            // Aggregate biggest pots, bad beats, all-ins across all games
+            const allBiggestPots = [];
+            const allBadBeats = [];
+            const allInShowdowns = [];
+
+            for (const game of allHistoricalGames) {
+                const date = game.date;
+                if (game.biggestPots) {
+                    for (const pot of game.biggestPots) {
+                        allBiggestPots.push({ ...pot, gameDate: date });
+                    }
+                }
+                if (game.badBeats) {
+                    for (const bb of game.badBeats) {
+                        allBadBeats.push({ ...bb, gameDate: date });
+                    }
+                }
+                if (game.allInShowdowns) {
+                    for (const ai of game.allInShowdowns) {
+                        allInShowdowns.push({ ...ai, gameDate: date });
+                    }
+                }
+            }
+
+            allBiggestPots.sort((a, b) => b.totalPot - a.totalPot);
+            allBadBeats.sort((a, b) => b.totalPot - a.totalPot);
+            allInShowdowns.sort((a, b) => b.totalPot - a.totalPot);
+
+            const loading = document.getElementById('handHighlightsLoading');
+            const grid = document.getElementById('handHighlights');
+
+            if (allBiggestPots.length === 0 && allBadBeats.length === 0 && allInShowdowns.length === 0) {
+                loading.textContent = 'No hand data available yet. Run fetch_logs.py to import game logs.';
+                return;
+            }
+
+            loading.style.display = 'none';
+            grid.style.display = 'grid';
+
+            // Render biggest pots
+            document.getElementById('biggestPotsCards').innerHTML = allBiggestPots.slice(0, 10).map((pot, i) => {
+                const winnerLines = pot.winners.map(w => {
+                    const name = resolveName(w.player);
+                    const hand = w.handName || w.detail || '';
+                    return `<span class="hand-winner">${escapeHtml(name)}</span>` +
+                           (hand ? ` <span class="hand-detail">${escapeHtml(hand)}</span>` : '');
+                }).join('<br>');
+                return `<div class="hand-card">
+                    <div class="hand-rank">#${i + 1} &middot; Hand #${pot.handNum} &middot; ${pot.gameDate}</div>
+                    <div class="hand-pot">$${formatAmount(pot.totalPot)}</div>
+                    ${winnerLines}
+                </div>`;
+            }).join('') || '<div style="color:#888">No data yet</div>';
+
+            // Render bad beats
+            document.getElementById('badBeatsCards').innerHTML = allBadBeats.slice(0, 10).map((bb, i) => {
+                const loser = resolveName(bb.loser);
+                const winner = resolveName(bb.winner);
+                return `<div class="hand-card bad-beat">
+                    <div class="hand-rank">#${i + 1} &middot; Hand #${bb.handNum} &middot; ${bb.gameDate}</div>
+                    <div class="hand-pot">$${formatAmount(bb.totalPot)} pot</div>
+                    <div class="hand-winner">${escapeHtml(loser)} lost</div>
+                    <div class="hand-cards">Showed: ${escapeHtml(bb.loserCards)}</div>
+                    <div class="hand-detail">to ${escapeHtml(winner)} ${bb.winnerHand ? 'with ' + escapeHtml(bb.winnerHand) : ''}</div>
+                    ${bb.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(bb.communityCards)}</div>` : ''}
+                </div>`;
+            }).join('') || '<div style="color:#888">No data yet</div>';
+
+            // Render all-in showdowns
+            document.getElementById('allInCards').innerHTML = allInShowdowns.slice(0, 10).map((ai, i) => {
+                const players = ai.shownHands.map(s => {
+                    const name = resolveName(s.player);
+                    const won = ai.winners.some(w => w.player === s.player);
+                    return `<span class="${won ? 'hand-winner' : 'hand-detail'}">${escapeHtml(name)}: <span class="hand-cards">${escapeHtml(s.cards)}</span>${won ? ' ✓' : ''}</span>`;
+                }).join('<br>');
+                const winnerHands = ai.winners.map(w => w.handName).filter(Boolean).join(', ');
+                return `<div class="hand-card allin">
+                    <div class="hand-rank">#${i + 1} &middot; Hand #${ai.handNum} &middot; ${ai.gameDate}</div>
+                    <div class="hand-pot">$${formatAmount(ai.totalPot)}</div>
+                    ${players}
+                    ${winnerHands ? `<div class="hand-detail">Won with: ${escapeHtml(winnerHands)}</div>` : ''}
+                    ${ai.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(ai.communityCards)}</div>` : ''}
+                </div>`;
+            }).join('') || '<div style="color:#888">No data yet</div>';
         }
 
         function formatSigned(val) {
