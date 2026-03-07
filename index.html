@@ -738,7 +738,10 @@
         const db = firebase.firestore();
 
         // ── Password for History tab ──
-        const HISTORY_PASSWORD = 'poker';
+        const HISTORY_PASSWORD = 'datelinedan';
+        function checkPassword(input) {
+            return input && input.toLowerCase().replace(/\s/g, '') === HISTORY_PASSWORD;
+        }
 
         // ── DOM refs ──
         const gameLink = document.getElementById('gameLink');
@@ -811,9 +814,9 @@
         function switchTab(tab) {
             if (tab === 'history') {
                 const savedPw = localStorage.getItem('pnl_history_pw');
-                if (savedPw !== HISTORY_PASSWORD) {
+                if (!checkPassword(savedPw)) {
                     const pw = prompt('Enter password to view history:');
-                    if (pw !== HISTORY_PASSWORD) {
+                    if (!checkPassword(pw)) {
                         if (pw !== null) alert('Incorrect password.');
                         return;
                     }
@@ -1360,12 +1363,10 @@
             const datasets = [];
             let colorIdx = 0;
 
-            // Sort players by total P&L descending for legend order
-            const sortedPlayers = Object.entries(playerData).sort((a, b) => {
-                const totalA = a[1].reduce((s, r) => s + r.net, 0);
-                const totalB = b[1].reduce((s, r) => s + r.net, 0);
-                return totalB - totalA;
-            });
+            // Sort players alphabetically for legend order
+            const sortedPlayers = Object.entries(playerData).sort((a, b) =>
+                a[0].localeCompare(b[0])
+            );
 
             for (const [name, results] of sortedPlayers) {
                 let cumulative = 0;
