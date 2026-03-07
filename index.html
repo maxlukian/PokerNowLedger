@@ -1044,6 +1044,19 @@
             try {
                 const snapshot = await db.collection('games').orderBy('date', 'asc').get();
                 allHistoricalGames = snapshot.docs.map(doc => doc.data());
+
+                // Fetch playerStats from subcollection for games that don't have it inline
+                const statsPromises = snapshot.docs.map(async (docSnap, idx) => {
+                    if (allHistoricalGames[idx].playerStats) return; // already inline (old format)
+                    try {
+                        const statsDoc = await docSnap.ref.collection('parsed_data').doc('playerStats').get();
+                        if (statsDoc.exists) {
+                            allHistoricalGames[idx].playerStats = statsDoc.data().players;
+                        }
+                    } catch (e) { /* skip if no stats */ }
+                });
+                await Promise.all(statsPromises);
+
                 historyLoaded = true;
             } catch (err) {
                 console.error('Failed to load history:', err);
