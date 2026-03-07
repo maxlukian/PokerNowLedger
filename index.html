@@ -580,6 +580,14 @@
             z-index: 1;
         }
 
+        #handTypesTable th:first-child,
+        #handTypesTable td:first-child {
+            position: sticky;
+            left: 0;
+            background: #16213e;
+            z-index: 1;
+        }
+
         .performance-table tr:last-child td {
             border-bottom: none;
         }
@@ -655,6 +663,46 @@
             margin-bottom: 12px;
             padding-bottom: 8px;
             border-bottom: 1px solid #2a3a5a;
+        }
+
+        .vpip-bar {
+            display: inline-block;
+            height: 6px;
+            border-radius: 3px;
+            background: #4a6fa5;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        .range-slider {
+            position: relative;
+            height: 30px;
+            margin-top: 10px;
+        }
+        .range-slider input[type="range"] {
+            position: absolute;
+            width: 100%;
+            pointer-events: none;
+            appearance: none;
+            -webkit-appearance: none;
+            background: transparent;
+            top: 0;
+        }
+        .range-slider input[type="range"]::-webkit-slider-thumb {
+            pointer-events: auto;
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #4a6fa5;
+            cursor: pointer;
+            border: 2px solid #ccc;
+        }
+        .range-slider input[type="range"]::-webkit-slider-runnable-track {
+            height: 4px;
+            background: #2a3a5a;
+            border-radius: 2px;
         }
 
         @media (max-width: 500px) {
@@ -758,9 +806,9 @@
                 <div class="chart-container">
                     <canvas id="pnlChart"></canvas>
                 </div>
-                <div style="display:flex;gap:12px;align-items:center;margin-top:10px;">
-                    <input type="range" id="chartRangeMin" min="0" max="100" value="0" style="flex:1;accent-color:#4a6fa5;">
-                    <input type="range" id="chartRangeMax" min="0" max="100" value="100" style="flex:1;accent-color:#4a6fa5;">
+                <div class="range-slider">
+                    <input type="range" id="chartRangeMin" min="0" max="100" value="0">
+                    <input type="range" id="chartRangeMax" min="0" max="100" value="100">
                 </div>
             </div>
 
@@ -779,6 +827,49 @@
                     <div class="hand-highlights-column">
                         <h4>All-In Showdowns</h4>
                         <div id="allInCards"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Player Tendencies (VPIP)</h3>
+                <div id="vpipLoading" style="color:#888;text-align:center;padding:20px;">Loading...</div>
+                <div class="performance-table-wrapper" id="vpipTableWrapper" style="display:none;">
+                    <table class="performance-table" id="vpipTable">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Hands</th>
+                                <th>VPIP %</th>
+                                <th>Saw Flop %</th>
+                                <th>Saw Turn %</th>
+                                <th>Saw River %</th>
+                                <th>Showdown %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vpipBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Winning Hand Types</h3>
+                <div id="handTypesLoading" style="color:#888;text-align:center;padding:20px;">Loading...</div>
+                <div id="handTypesChartWrapper" style="display:none;">
+                    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                        <button class="chart-toggle-btn" onclick="toggleHandTypesView('chart')">Chart</button>
+                        <button class="chart-toggle-btn" onclick="toggleHandTypesView('table')">Table</button>
+                    </div>
+                    <div class="chart-container" id="handTypesChartContainer">
+                        <canvas id="handTypesChart"></canvas>
+                    </div>
+                    <div id="handTypesTableContainer" style="display:none;">
+                        <div class="performance-table-wrapper">
+                            <table class="performance-table" id="handTypesTable">
+                                <thead><tr id="handTypesHeader"></tr></thead>
+                                <tbody id="handTypesBody"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1625,8 +1716,9 @@
                 </tr>`;
             }).join('');
 
-            // Render hand highlights
+            // Render hand highlights and player stats
             loadHandHighlights();
+            loadPlayerStats();
         }
 
         function loadHandHighlights() {
@@ -1720,6 +1812,167 @@
                     ${ai.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(ai.communityCards)}</div>` : ''}
                 </div></a>`;
             }).join('') || '<div style="color:#888">No data yet</div>';
+        }
+
+        let handTypesChart = null;
+
+        function loadPlayerStats() {
+            // Aggregate VPIP and hand type data across all games
+            const aggregated = {};  // player -> merged stats
+
+            for (const game of allHistoricalGames) {
+                if (!game.playerStats) continue;
+                for (const [player, stats] of Object.entries(game.playerStats)) {
+                    const name = resolveName(player);
+                    if (!aggregated[name]) {
+                        aggregated[name] = {
+                            handsDealt: 0, vpipHands: 0,
+                            sawFlop: 0, sawTurn: 0, sawRiver: 0,
+                            wentToShowdown: 0, handTypes: {},
+                        };
+                    }
+                    const a = aggregated[name];
+                    a.handsDealt += stats.handsDealt || 0;
+                    a.vpipHands += stats.vpipHands || 0;
+                    a.sawFlop += stats.sawFlop || 0;
+                    a.sawTurn += stats.sawTurn || 0;
+                    a.sawRiver += stats.sawRiver || 0;
+                    a.wentToShowdown += stats.wentToShowdown || 0;
+                    if (stats.handTypes) {
+                        for (const [ht, count] of Object.entries(stats.handTypes)) {
+                            a.handTypes[ht] = (a.handTypes[ht] || 0) + count;
+                        }
+                    }
+                }
+            }
+
+            const players = Object.entries(aggregated)
+                .filter(([_, s]) => s.handsDealt >= 10)
+                .sort((a, b) => b[1].handsDealt - a[1].handsDealt);
+
+            // ── VPIP Table ──
+            const vpipLoading = document.getElementById('vpipLoading');
+            const vpipWrapper = document.getElementById('vpipTableWrapper');
+
+            if (players.length === 0) {
+                vpipLoading.textContent = 'No player stats available yet. Run fetch_logs.py to import game logs.';
+                document.getElementById('handTypesLoading').textContent = 'No data yet.';
+                return;
+            }
+
+            vpipLoading.style.display = 'none';
+            vpipWrapper.style.display = 'block';
+
+            const pct = (num, den) => den > 0 ? Math.round(100 * num / den) : 0;
+            const vpipBar = (val) => `<span class="vpip-bar" style="width:${Math.max(val, 2)}px"></span>${val}%`;
+
+            document.getElementById('vpipBody').innerHTML = players.map(([name, s]) => {
+                const vpip = pct(s.vpipHands, s.handsDealt);
+                const flop = pct(s.sawFlop, s.handsDealt);
+                const turn = pct(s.sawTurn, s.handsDealt);
+                const river = pct(s.sawRiver, s.handsDealt);
+                const sd = pct(s.wentToShowdown, s.handsDealt);
+                return `<tr>
+                    <td style="font-weight:600">${escapeHtml(name)}</td>
+                    <td>${s.handsDealt}</td>
+                    <td>${vpipBar(vpip)}</td>
+                    <td>${vpipBar(flop)}</td>
+                    <td>${vpipBar(turn)}</td>
+                    <td>${vpipBar(river)}</td>
+                    <td>${vpipBar(sd)}</td>
+                </tr>`;
+            }).join('');
+
+            // ── Hand Types Chart ──
+            document.getElementById('handTypesLoading').style.display = 'none';
+            document.getElementById('handTypesChartWrapper').style.display = 'block';
+
+            const handTypeOrder = [
+                'Royal Flush', 'Straight Flush', 'Four of a Kind', 'Full House',
+                'Flush', 'Straight', 'Three of a Kind', 'Two Pair', 'Pair', 'High Card',
+                'Unknown/No Showdown'
+            ];
+
+            const handTypeColors = [
+                '#fbbf24', '#e879f9', '#f87171', '#4ade80', '#60a5fa',
+                '#34d399', '#fb923c', '#a78bfa', '#22d3ee', '#888',
+                '#444'
+            ];
+
+            const chartPlayers = players.filter(([_, s]) => {
+                return Object.keys(s.handTypes).some(ht => ht !== 'Unknown/No Showdown');
+            });
+
+            const datasets = handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown').map((ht, idx) => ({
+                label: ht,
+                data: chartPlayers.map(([_, s]) => s.handTypes[ht] || 0),
+                backgroundColor: handTypeColors[idx],
+            }));
+
+            const ctx = document.getElementById('handTypesChart').getContext('2d');
+            if (handTypesChart) handTypesChart.destroy();
+
+            handTypesChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartPlayers.map(([name]) => name),
+                    datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: { color: '#888' },
+                            grid: { color: '#2a3a5a' },
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: { color: '#888' },
+                            grid: { color: '#2a3a5a' },
+                            title: { display: true, text: 'Pots Won', color: '#888' },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#ccc', usePointStyle: true, pointStyle: 'rect' },
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}`,
+                            },
+                        },
+                    },
+                },
+            });
+
+            // ── Hand Types Table ──
+            document.getElementById('handTypesHeader').innerHTML =
+                '<th>Player</th>' + handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown')
+                    .map(ht => `<th style="font-size:0.7rem">${ht}</th>`).join('') + '<th>Total</th>';
+
+            document.getElementById('handTypesBody').innerHTML = chartPlayers.map(([name, s]) => {
+                const cells = handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown')
+                    .map(ht => {
+                        const v = s.handTypes[ht] || 0;
+                        return `<td style="color:${v > 0 ? '#ccc' : '#444'}">${v}</td>`;
+                    }).join('');
+                const total = Object.entries(s.handTypes)
+                    .filter(([ht]) => ht !== 'Unknown/No Showdown')
+                    .reduce((sum, [_, c]) => sum + c, 0);
+                return `<tr>
+                    <td style="font-weight:600">${escapeHtml(name)}</td>
+                    ${cells}
+                    <td style="font-weight:600">${total}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function toggleHandTypesView(view) {
+            document.getElementById('handTypesChartContainer').style.display = view === 'chart' ? 'block' : 'none';
+            document.getElementById('handTypesTableContainer').style.display = view === 'table' ? 'block' : 'none';
+            if (view === 'chart' && handTypesChart) handTypesChart.resize();
         }
 
         function formatSigned(val) {
