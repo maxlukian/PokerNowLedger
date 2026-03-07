@@ -719,14 +719,30 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <!-- Site-wide password gate -->
+    <div id="passwordGate" style="display:flex; justify-content:center; align-items:center; min-height:100vh;">
+        <div style="text-align:center; background:#16213e; padding:40px 50px; border-radius:12px; border:1px solid #2a3a5c;">
+            <h1 style="color:#e0e0e0; margin-bottom:8px;">PokerNow Ledger</h1>
+            <p style="color:#aaa; margin-bottom:24px;">Enter password to access</p>
+            <input type="password" id="sitePasswordInput" placeholder="Password"
+                style="padding:10px 16px; border-radius:6px; border:1px solid #2a3a5c; background:#1a1a2e; color:#e0e0e0; font-size:16px; width:220px; text-align:center;"
+                onkeydown="if(event.key==='Enter') checkSitePassword()">
+            <br>
+            <button onclick="checkSitePassword()"
+                style="margin-top:16px; padding:10px 32px; background:#4fc3f7; color:#1a1a2e; border:none; border-radius:6px; font-weight:700; font-size:15px; cursor:pointer;">
+                Enter
+            </button>
+            <p id="sitePasswordError" style="color:#ef5350; margin-top:12px; display:none;">Incorrect password</p>
+        </div>
+    </div>
+
+    <div class="container" id="mainContent" style="display:none">
         <h1>PokerNow Ledger</h1>
         <p class="subtitle">Calculate settlements from PokerNow games</p>
 
         <div class="tab-bar">
             <button class="tab active" id="tabLedger" onclick="switchTab('ledger')">Ledger</button>
-            <!-- MAINTENANCE: hidden while importing game data -->
-            <button class="tab" id="tabHistory" onclick="switchTab('history')" style="display:none">History</button>
+            <button class="tab" id="tabHistory" onclick="switchTab('history')">History</button>
         </div>
 
         <!-- ── Ledger Tab ── -->
@@ -911,10 +927,22 @@
         });
         const db = firebase.firestore();
 
-        // ── Password for History tab ──
-        const HISTORY_PASSWORD = 'datelinedan';
-        function checkPassword(input) {
-            return input && input.toLowerCase().replace(/\s/g, '') === HISTORY_PASSWORD;
+        // ── Site-wide password ──
+        const SITE_PASSWORD = 'datelinedan';
+        function checkSitePassword() {
+            const input = document.getElementById('sitePasswordInput').value;
+            if (input && input.toLowerCase().replace(/\s/g, '') === SITE_PASSWORD) {
+                localStorage.setItem('pnl_site_pw', input.toLowerCase().replace(/\s/g, ''));
+                document.getElementById('passwordGate').style.display = 'none';
+                document.getElementById('mainContent').style.display = '';
+            } else {
+                document.getElementById('sitePasswordError').style.display = 'block';
+            }
+        }
+        // Auto-unlock if previously authenticated
+        if (localStorage.getItem('pnl_site_pw') === SITE_PASSWORD) {
+            document.getElementById('passwordGate').style.display = 'none';
+            document.getElementById('mainContent').style.display = '';
         }
 
         // ── DOM refs ──
@@ -987,16 +1015,6 @@
         // ── Tab switching ──
         function switchTab(tab) {
             if (tab === 'history') {
-                const savedPw = localStorage.getItem('pnl_history_pw');
-                if (!checkPassword(savedPw)) {
-                    const pw = prompt('Enter password to view history:');
-                    if (!checkPassword(pw)) {
-                        if (pw !== null) alert('Incorrect password.');
-                        return;
-                    }
-                    localStorage.setItem('pnl_history_pw', pw);
-                }
-
                 document.getElementById('ledgerTab').style.display = 'none';
                 document.getElementById('historyTab').style.display = 'block';
                 document.getElementById('tabLedger').classList.remove('active');
