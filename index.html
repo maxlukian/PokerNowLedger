@@ -24,6 +24,11 @@
             margin: 0 auto;
         }
 
+        .container.wide {
+            max-width: 100%;
+            padding: 0 24px;
+        }
+
         h1 {
             font-size: 2.5rem;
             margin-bottom: 0.5rem;
@@ -769,6 +774,7 @@
                 document.getElementById('historyTab').style.display = 'block';
                 document.getElementById('tabLedger').classList.remove('active');
                 document.getElementById('tabHistory').classList.add('active');
+                document.querySelector('.container').classList.add('wide');
                 renderHistoryMergeUI();
                 renderHistory();
             } else {
@@ -776,6 +782,7 @@
                 document.getElementById('historyTab').style.display = 'none';
                 document.getElementById('tabLedger').classList.add('active');
                 document.getElementById('tabHistory').classList.remove('active');
+                document.querySelector('.container').classList.remove('wide');
             }
         }
 
