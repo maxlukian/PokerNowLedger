@@ -517,6 +517,18 @@
             font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .performance-table th:hover {
+            color: #ccc;
+        }
+
+        .performance-table th .sort-arrow {
+            margin-left: 4px;
+            font-size: 0.7rem;
         }
 
         .performance-table td {
@@ -599,7 +611,33 @@
 
         <!-- ── History Tab ── -->
         <div id="historyTab" style="display: none;">
-            <!-- Merge section (shared with ledger) -->
+            <div class="history-section">
+                <h3 class="section-header">Performance</h3>
+                <div class="performance-table-wrapper">
+                    <table class="performance-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="name">Player</th>
+                                <th data-sort="gameCount">Games</th>
+                                <th data-sort="totalPnL">Total P&L <span class="sort-arrow">▼</span></th>
+                                <th data-sort="avgPnL">Avg P&L</th>
+                                <th data-sort="best">Best</th>
+                                <th data-sort="worst">Worst</th>
+                                <th data-sort="variance">Variance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="performanceBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Cumulative P&L</h3>
+                <div class="chart-container">
+                    <canvas id="pnlChart"></canvas>
+                </div>
+            </div>
+
             <div class="merge-section visible" id="historyMergeSection">
                 <h3 class="section-header">Merge Duplicate Players</h3>
                 <p class="merge-info">Select names that belong to the same person, pick the primary name, then merge. Merges apply across all games.</p>
@@ -611,32 +649,6 @@
                     <button class="merge-btn" id="historyMergeBtn" disabled>Merge</button>
                 </div>
                 <div class="merged-groups" id="historyMergedGroups"></div>
-            </div>
-
-            <div class="history-section">
-                <h3 class="section-header">Cumulative P&L</h3>
-                <div class="chart-container">
-                    <canvas id="pnlChart"></canvas>
-                </div>
-            </div>
-
-            <div class="history-section">
-                <h3 class="section-header">Performance</h3>
-                <div class="performance-table-wrapper">
-                    <table class="performance-table">
-                        <thead>
-                            <tr>
-                                <th>Player</th>
-                                <th>Games</th>
-                                <th>Total P&L</th>
-                                <th>Avg P&L</th>
-                                <th>Best</th>
-                                <th>Worst</th>
-                            </tr>
-                        </thead>
-                        <tbody id="performanceBody"></tbody>
-                    </table>
-                </div>
             </div>
         </div>
     </div>
@@ -1202,11 +1214,27 @@
         }
 
         // ── History Tab Rendering ──
+        let perfSortKey = 'totalPnL';
+        let perfSortAsc = false;
+
+        document.querySelector('.performance-table thead').addEventListener('click', function(e) {
+            const th = e.target.closest('th');
+            if (!th || !th.dataset.sort) return;
+            const key = th.dataset.sort;
+            if (perfSortKey === key) {
+                perfSortAsc = !perfSortAsc;
+            } else {
+                perfSortKey = key;
+                perfSortAsc = key === 'name';
+            }
+            renderHistory();
+        });
+
         function renderHistory() {
             const performanceBody = document.getElementById('performanceBody');
 
             if (!historyLoaded) {
-                performanceBody.innerHTML = '<tr><td colspan="6" class="history-loading">Loading...</td></tr>';
+                performanceBody.innerHTML = '<tr><td colspan="7" class="history-loading">Loading...</td></tr>';
                 setTimeout(renderHistory, 500);
                 return;
             }
@@ -1214,7 +1242,7 @@
             const games = allHistoricalGames.slice().sort((a, b) => a.date.localeCompare(b.date));
 
             if (games.length === 0) {
-                performanceBody.innerHTML = '<tr><td colspan="6" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
+                performanceBody.innerHTML = '<tr><td colspan="7" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
                 if (pnlChart) { pnlChart.destroy(); pnlChart = null; }
                 return;
             }
@@ -1331,10 +1359,32 @@
                 const avgPnL = Math.round(totalPnL / gameCount);
                 const best = Math.max(...results.map(r => r.net));
                 const worst = Math.min(...results.map(r => r.net));
-                rows.push({ name, gameCount, totalPnL, avgPnL, best, worst });
+                const mean = totalPnL / gameCount;
+                const variance = gameCount > 1
+                    ? Math.round(results.reduce((s, r) => s + Math.pow(r.net - mean, 2), 0) / (gameCount - 1))
+                    : 0;
+                rows.push({ name, gameCount, totalPnL, avgPnL, best, worst, variance });
             }
 
-            rows.sort((a, b) => b.totalPnL - a.totalPnL);
+            rows.sort((a, b) => {
+                let cmp;
+                if (perfSortKey === 'name') {
+                    cmp = a.name.localeCompare(b.name);
+                } else {
+                    cmp = a[perfSortKey] - b[perfSortKey];
+                }
+                return perfSortAsc ? cmp : -cmp;
+            });
+
+            // Update sort arrows in header
+            document.querySelectorAll('.performance-table th').forEach(th => {
+                const arrow = th.querySelector('.sort-arrow');
+                if (arrow) arrow.remove();
+                if (th.dataset.sort === perfSortKey) {
+                    th.insertAdjacentHTML('beforeend',
+                        `<span class="sort-arrow">${perfSortAsc ? '▲' : '▼'}</span>`);
+                }
+            });
 
             performanceBody.innerHTML = rows.map(row => {
                 const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
@@ -1345,6 +1395,7 @@
                     <td class="${cls(row.avgPnL)}">${formatSigned(row.avgPnL)}</td>
                     <td class="${cls(row.best)}">${formatSigned(row.best)}</td>
                     <td class="${cls(row.worst)}">${formatSigned(row.worst)}</td>
+                    <td style="color:#aaa">${row.variance.toLocaleString()}</td>
                 </tr>`;
             }).join('');
         }
