@@ -1426,8 +1426,8 @@
 
             performanceBody.innerHTML = rows.map(row => {
                 const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
-                const fmtVal = v => `${v >= 0 ? '+' : '-'}$${formatAmount(v)}`;
-                const fmtRange = `${fmtVal(row.annualLo)} to ${fmtVal(row.annualHi)}`;
+                const fmtColored = v => `<span class="${cls(v)}">${v >= 0 ? '+' : '-'}$${formatAmount(v)}</span>`;
+                const fmtRange = `${fmtColored(row.annualLo)} to ${fmtColored(row.annualHi)}`;
                 return `<tr>
                     <td style="font-weight:600">${escapeHtml(row.name)}</td>
                     <td>${row.gameCount}</td>
@@ -1436,7 +1436,7 @@
                     <td class="${cls(row.best)}">${formatSigned(row.best)}</td>
                     <td class="${cls(row.worst)}">${formatSigned(row.worst)}</td>
                     <td style="color:#aaa">$${formatAmount(row.stdPerGame)}</td>
-                    <td class="${cls(row.annualRange)}" style="white-space:nowrap">${fmtRange}</td>
+                    <td style="white-space:nowrap">${fmtRange}</td>
                 </tr>`;
             }).join('');
         }
