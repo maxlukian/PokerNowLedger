@@ -1,0 +1,5 @@
+firebase-service-key.json
+game_history*.json
+fetch_history.py
+upload_history.py
+__pycache__/

@@ -33,7 +33,40 @@
         .subtitle {
             color: #888;
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* ── Tab Bar ── */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            margin-bottom: 24px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #2a3a5a;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 0;
+            background: #0f0f1a;
+            color: #888;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: #ccc;
+            background: #16213e;
+        }
+
+        .tab.active {
+            background: #4a6fa5;
+            color: #fff;
         }
 
         .input-section {
@@ -65,6 +98,27 @@
 
         input[type="text"]::placeholder {
             color: #555;
+        }
+
+        input[type="date"] {
+            padding: 12px 12px;
+            border: 2px solid #2a3a5a;
+            border-radius: 8px;
+            background: #0f0f1a;
+            color: #eee;
+            font-size: 0.9rem;
+            width: 160px;
+            flex-shrink: 0;
+        }
+
+        input[type="date"]:focus {
+            outline: none;
+            border-color: #4a6fa5;
+        }
+
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.7);
+            cursor: pointer;
         }
 
         button {
@@ -418,6 +472,77 @@
             opacity: 1;
             background: transparent;
         }
+
+        /* ── History Tab ── */
+        .history-section {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 350px;
+        }
+
+        .history-empty {
+            color: #888;
+            text-align: center;
+            padding: 40px 0;
+        }
+
+        .history-loading {
+            color: #888;
+            text-align: center;
+            padding: 40px 0;
+        }
+
+        .performance-table-wrapper {
+            overflow-x: auto;
+        }
+
+        .performance-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .performance-table th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid #2a3a5a;
+            color: #888;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .performance-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #2a3a5a;
+        }
+
+        .performance-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .performance-table .positive { color: #4ade80; }
+        .performance-table .negative { color: #f87171; }
+        .performance-table .zero { color: #888; }
+
+        @media (max-width: 500px) {
+            .chart-container {
+                height: 260px;
+            }
+            .input-row {
+                flex-wrap: wrap;
+            }
+            input[type="date"] {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -425,49 +550,124 @@
         <h1>PokerNow Ledger</h1>
         <p class="subtitle">Calculate settlements from PokerNow games</p>
 
-        <div class="input-section">
-            <div class="input-row">
-                <input type="text" id="gameLink" placeholder="Paste one or more PokerNow links...">
-                <button id="fetchBtn">Add</button>
+        <div class="tab-bar">
+            <button class="tab active" id="tabLedger" onclick="switchTab('ledger')">Ledger</button>
+            <button class="tab" id="tabHistory" onclick="switchTab('history')">History</button>
+        </div>
+
+        <!-- ── Ledger Tab ── -->
+        <div id="ledgerTab">
+            <div class="input-section">
+                <div class="input-row">
+                    <input type="text" id="gameLink" placeholder="Paste one or more PokerNow links...">
+                    <input type="date" id="gameDate">
+                    <button id="fetchBtn">Add</button>
+                </div>
+                <div class="error" id="error"></div>
             </div>
-            <div class="error" id="error"></div>
-        </div>
 
-        <div class="results" id="results">
-            <div id="settlements"></div>
-            <div class="hint">Click anywhere to copy all</div>
-        </div>
-
-        <!-- Merge Players Section -->
-        <div class="merge-section" id="mergeSection">
-            <h3 class="section-header">Merge Duplicate Players</h3>
-            <p class="merge-info">Select names that belong to the same person, pick the primary name, then merge.</p>
-            <div class="merge-player-list" id="mergePlayerList"></div>
-            <div class="merge-controls">
-                <select id="mergePrimary">
-                    <option value="">Keep name as...</option>
-                </select>
-                <button class="merge-btn" id="mergeBtn" disabled>Merge</button>
+            <div class="results" id="results">
+                <div id="settlements"></div>
+                <div class="hint">Click anywhere to copy all</div>
             </div>
-            <div class="merged-groups" id="mergedGroups"></div>
+
+            <!-- Merge Players Section -->
+            <div class="merge-section" id="mergeSection">
+                <h3 class="section-header">Merge Duplicate Players</h3>
+                <p class="merge-info">Select names that belong to the same person, pick the primary name, then merge.</p>
+                <div class="merge-player-list" id="mergePlayerList"></div>
+                <div class="merge-controls">
+                    <select id="mergePrimary">
+                        <option value="">Keep name as...</option>
+                    </select>
+                    <button class="merge-btn" id="mergeBtn" disabled>Merge</button>
+                </div>
+                <div class="merged-groups" id="mergedGroups"></div>
+            </div>
+
+            <div class="leaderboard-section" id="leaderboardSection">
+                <h3 class="section-header">Leaderboard</h3>
+                <div id="leaderboardList"></div>
+                <div class="hint">Click anywhere to copy all</div>
+            </div>
+
+            <div class="games-section" id="gamesSection">
+                <h3 class="section-header">Games Added</h3>
+                <div id="gamesList"></div>
+            </div>
         </div>
 
-        <div class="leaderboard-section" id="leaderboardSection">
-            <h3 class="section-header">Leaderboard</h3>
-            <div id="leaderboardList"></div>
-            <div class="hint">Click anywhere to copy all</div>
-        </div>
+        <!-- ── History Tab ── -->
+        <div id="historyTab" style="display: none;">
+            <!-- Merge section (shared with ledger) -->
+            <div class="merge-section visible" id="historyMergeSection">
+                <h3 class="section-header">Merge Duplicate Players</h3>
+                <p class="merge-info">Select names that belong to the same person, pick the primary name, then merge. Merges apply across all games.</p>
+                <div class="merge-player-list" id="historyMergePlayerList"></div>
+                <div class="merge-controls">
+                    <select id="historyMergePrimary">
+                        <option value="">Keep name as...</option>
+                    </select>
+                    <button class="merge-btn" id="historyMergeBtn" disabled>Merge</button>
+                </div>
+                <div class="merged-groups" id="historyMergedGroups"></div>
+            </div>
 
-        <div class="games-section" id="gamesSection">
-            <h3 class="section-header">Games Added</h3>
-            <div id="gamesList"></div>
+            <div class="history-section">
+                <h3 class="section-header">Cumulative P&L</h3>
+                <div class="chart-container">
+                    <canvas id="pnlChart"></canvas>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Performance</h3>
+                <div class="performance-table-wrapper">
+                    <table class="performance-table">
+                        <thead>
+                            <tr>
+                                <th>Player</th>
+                                <th>Games</th>
+                                <th>Total P&L</th>
+                                <th>Avg P&L</th>
+                                <th>Best</th>
+                                <th>Worst</th>
+                            </tr>
+                        </thead>
+                        <tbody id="performanceBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="toast" id="toast">Copied!</div>
 
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+
     <script>
+        // ── Firebase Init ──
+        firebase.initializeApp({
+            apiKey: "AIzaSyBybBjSC_sO1I8BdZ_hT2sTxNER7P6tSwc",
+            authDomain: "pokernowledger.firebaseapp.com",
+            projectId: "pokernowledger",
+            storageBucket: "pokernowledger.firebasestorage.app",
+            messagingSenderId: "785844649907",
+            appId: "1:785844649907:web:d4b16d216addf0ac4855c6"
+        });
+        const db = firebase.firestore();
+
+        // ── Password for History tab ──
+        const HISTORY_PASSWORD = 'poker';
+
+        // ── DOM refs ──
         const gameLink = document.getElementById('gameLink');
+        const gameDate = document.getElementById('gameDate');
         const fetchBtn = document.getElementById('fetchBtn');
         const results = document.getElementById('results');
         const settlements = document.getElementById('settlements');
@@ -483,29 +683,143 @@
         const mergeBtn = document.getElementById('mergeBtn');
         const mergedGroupsDiv = document.getElementById('mergedGroups');
 
-        // Store all games data in order: [{ gameId, data }]
+        // Default date picker to today
+        gameDate.value = new Date().toISOString().split('T')[0];
+
+        // ── State ──
         const games = [];
-
-        // Name merges: array of { primary: string, aliases: string[] }
         const merges = [];
-
-        // Currently selected names for merging
         const selectedForMerge = new Set();
+        let allHistoricalGames = [];
+        let historyLoaded = false;
+        let pnlChart = null;
 
+        // ── Event listeners ──
         fetchBtn.addEventListener('click', fetchGames);
         gameLink.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') fetchGames();
         });
+        const historyMergePlayerList = document.getElementById('historyMergePlayerList');
+        const historyMergePrimary = document.getElementById('historyMergePrimary');
+        const historyMergeBtn = document.getElementById('historyMergeBtn');
+        const historyMergedGroups = document.getElementById('historyMergedGroups');
+
+        // Track which merge UI is active
+        const historySelectedForMerge = new Set();
 
         results.addEventListener('click', copyAllSettlements);
         leaderboardSection.addEventListener('click', copyLeaderboard);
         mergeBtn.addEventListener('click', performMerge);
+        historyMergeBtn.addEventListener('click', performHistoryMerge);
+        historyMergePrimary.addEventListener('change', () => {
+            const selected = [...historySelectedForMerge];
+            historyMergeBtn.disabled = selected.length < 2 || !historyMergePrimary.value;
+        });
 
+        // ── Tab switching ──
+        function switchTab(tab) {
+            if (tab === 'history') {
+                const savedPw = localStorage.getItem('pnl_history_pw');
+                if (savedPw !== HISTORY_PASSWORD) {
+                    const pw = prompt('Enter password to view history:');
+                    if (pw !== HISTORY_PASSWORD) {
+                        if (pw !== null) alert('Incorrect password.');
+                        return;
+                    }
+                    localStorage.setItem('pnl_history_pw', pw);
+                }
+
+                document.getElementById('ledgerTab').style.display = 'none';
+                document.getElementById('historyTab').style.display = 'block';
+                document.getElementById('tabLedger').classList.remove('active');
+                document.getElementById('tabHistory').classList.add('active');
+                renderHistoryMergeUI();
+                renderHistory();
+            } else {
+                document.getElementById('ledgerTab').style.display = 'block';
+                document.getElementById('historyTab').style.display = 'none';
+                document.getElementById('tabLedger').classList.add('active');
+                document.getElementById('tabHistory').classList.remove('active');
+            }
+        }
+
+        // ── Firestore: save game ──
+        async function saveGameToFirestore(gameId, data, date) {
+            const docRef = db.collection('games').doc(gameId);
+            const existing = await docRef.get();
+            if (existing.exists) return;
+
+            const players = {};
+            for (const [pid, info] of Object.entries(data.playersInfos)) {
+                players[pid] = {
+                    names: info.names,
+                    buyInSum: info.buyInSum,
+                    buyOutSum: info.buyOutSum,
+                    net: info.net
+                };
+            }
+
+            await docRef.set({
+                gameId,
+                date,
+                addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                players
+            });
+
+            // Add to local history array
+            allHistoricalGames.push({ gameId, date, players });
+        }
+
+        // ── Firestore: load all games ──
+        async function loadHistoricalGames() {
+            try {
+                const snapshot = await db.collection('games').orderBy('date', 'asc').get();
+                allHistoricalGames = snapshot.docs.map(doc => doc.data());
+                historyLoaded = true;
+            } catch (err) {
+                console.error('Failed to load history:', err);
+            }
+        }
+
+        // ── Firestore: save merges ──
+        async function saveMergesToFirestore() {
+            try {
+                await db.collection('config').doc('merges').set({ groups: merges });
+            } catch (err) {
+                console.error('Failed to save merges:', err);
+            }
+        }
+
+        // ── Firestore: load merges ──
+        async function loadMergesFromFirestore() {
+            try {
+                const doc = await db.collection('config').doc('merges').get();
+                if (doc.exists && doc.data().groups) {
+                    merges.length = 0;
+                    for (const g of doc.data().groups) {
+                        merges.push(g);
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load merges:', err);
+            }
+        }
+
+        // Load on startup
+        Promise.all([loadHistoricalGames(), loadMergesFromFirestore()]);
+
+        // ── Fetch games from PokerNow ──
         async function fetchGames() {
             const input = gameLink.value.trim();
-            
+            const date = gameDate.value;
+
+            if (!date) {
+                showError('Please select a game date.');
+                return;
+            }
+
             const matches = [...input.matchAll(/pokernow\.(?:club|com)\/games\/(pgl[a-zA-Z0-9_-]+)/g)];
-            
+
             if (matches.length === 0) {
                 showError('No valid PokerNow links found.');
                 return;
@@ -513,7 +827,7 @@
 
             const existingIds = games.map(g => g.gameId);
             const newGameIds = matches.map(m => m[1]).filter(id => !existingIds.includes(id));
-            
+
             if (newGameIds.length === 0) {
                 showError('All games already added.');
                 return;
@@ -526,13 +840,18 @@
             try {
                 for (const gameId of newGameIds) {
                     const response = await fetch(`/api/players?gameId=${gameId}`);
-                    
+
                     if (!response.ok) {
                         throw new Error(`Failed to fetch game ${gameId}`);
                     }
 
                     const data = await response.json();
-                    games.push({ gameId, data });
+                    games.push({ gameId, data, date });
+
+                    // Save to Firestore in the background
+                    saveGameToFirestore(gameId, data, date).catch(err => {
+                        console.error('Failed to save to Firestore:', err);
+                    });
                 }
 
                 gameLink.value = '';
@@ -553,7 +872,6 @@
             updateDisplay();
         }
 
-        // Resolve a raw name to its merged primary name
         function resolveName(name) {
             for (const merge of merges) {
                 if (merge.primary === name || merge.aliases.includes(name)) {
@@ -563,7 +881,6 @@
             return name;
         }
 
-        // Get all unique raw names from game data
         function getAllRawNames() {
             const names = new Set();
             for (const { data } of games) {
@@ -576,7 +893,6 @@
             return [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
         }
 
-        // Get names that haven't been merged yet
         function getUnmergedNames() {
             const allMerged = new Set();
             for (const merge of merges) {
@@ -598,30 +914,25 @@
         function renderMergeUI() {
             const unmerged = getUnmergedNames();
 
-            // Render chips
             mergePlayerList.innerHTML = unmerged.map(name => {
                 const isSelected = selectedForMerge.has(name);
                 return `<div class="merge-chip ${isSelected ? 'selected' : ''}" onclick="toggleMergeSelection('${escapeAttr(name)}')">${escapeHtml(name)}</div>`;
             }).join('');
 
-            // Update the "keep as" dropdown with only selected names
             const selected = [...selectedForMerge];
             const prevValue = mergePrimary.value;
             mergePrimary.innerHTML = '<option value="">Keep name as...</option>' +
                 selected.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
 
-            // Restore selection if still valid
             if (selected.includes(prevValue)) {
                 mergePrimary.value = prevValue;
             }
 
             mergeBtn.disabled = selected.length < 2 || !mergePrimary.value;
 
-            // Render existing merge groups
             if (merges.length > 0) {
                 mergedGroupsDiv.innerHTML = '<div class="section-header" style="margin-top:4px;">Active Merges</div>' +
                     merges.map((merge, i) => {
-                        const allNames = [merge.primary, ...merge.aliases];
                         return `<div class="merged-group-item">
                             <span>
                                 <span class="merged-group-primary">${escapeHtml(merge.primary)}</span>
@@ -648,21 +959,108 @@
             mergePrimary.value = '';
 
             updateDisplay();
+            saveMergesToFirestore();
         }
 
         function undoMerge(index) {
             merges.splice(index, 1);
             updateDisplay();
+            saveMergesToFirestore();
+            // Re-render history if on that tab
+            if (document.getElementById('historyTab').style.display !== 'none') {
+                renderHistoryMergeUI();
+                renderHistory();
+            }
         }
 
-        // Listen for dropdown changes to enable/disable merge button
+        // ── History tab merge functions ──
+        function getAllHistoryRawNames() {
+            const names = new Set();
+            for (const game of allHistoricalGames) {
+                for (const info of Object.values(game.players)) {
+                    const name = info.names[0] || 'Unknown';
+                    names.add(name);
+                }
+            }
+            return [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        }
+
+        function getHistoryUnmergedNames() {
+            const allMerged = new Set();
+            for (const merge of merges) {
+                allMerged.add(merge.primary);
+                merge.aliases.forEach(a => allMerged.add(a));
+            }
+            return getAllHistoryRawNames().filter(n => !allMerged.has(n));
+        }
+
+        function toggleHistoryMergeSelection(name) {
+            if (historySelectedForMerge.has(name)) {
+                historySelectedForMerge.delete(name);
+            } else {
+                historySelectedForMerge.add(name);
+            }
+            renderHistoryMergeUI();
+        }
+
+        function renderHistoryMergeUI() {
+            const unmerged = getHistoryUnmergedNames();
+
+            historyMergePlayerList.innerHTML = unmerged.map(name => {
+                const isSelected = historySelectedForMerge.has(name);
+                return `<div class="merge-chip ${isSelected ? 'selected' : ''}" onclick="toggleHistoryMergeSelection('${escapeAttr(name)}')">${escapeHtml(name)}</div>`;
+            }).join('');
+
+            const selected = [...historySelectedForMerge];
+            const prevValue = historyMergePrimary.value;
+            historyMergePrimary.innerHTML = '<option value="">Keep name as...</option>' +
+                selected.map(name => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join('');
+
+            if (selected.includes(prevValue)) {
+                historyMergePrimary.value = prevValue;
+            }
+
+            historyMergeBtn.disabled = selected.length < 2 || !historyMergePrimary.value;
+
+            if (merges.length > 0) {
+                historyMergedGroups.innerHTML = '<div class="section-header" style="margin-top:4px;">Active Merges</div>' +
+                    merges.map((merge, i) => {
+                        return `<div class="merged-group-item">
+                            <span>
+                                <span class="merged-group-primary">${escapeHtml(merge.primary)}</span>
+                                <span class="merged-group-names"> ← ${merge.aliases.map(a => escapeHtml(a)).join(', ')}</span>
+                            </span>
+                            <button class="undo-merge-btn" onclick="undoMerge(${i})">undo</button>
+                        </div>`;
+                    }).join('');
+            } else {
+                historyMergedGroups.innerHTML = '';
+            }
+        }
+
+        function performHistoryMerge() {
+            const primary = historyMergePrimary.value;
+            const selected = [...historySelectedForMerge];
+
+            if (selected.length < 2 || !primary) return;
+
+            const aliases = selected.filter(n => n !== primary);
+            merges.push({ primary, aliases });
+
+            historySelectedForMerge.clear();
+            historyMergePrimary.value = '';
+
+            saveMergesToFirestore();
+            renderHistoryMergeUI();
+            renderHistory();
+        }
+
         mergePrimary.addEventListener('change', () => {
             const selected = [...selectedForMerge];
             mergeBtn.disabled = selected.length < 2 || !mergePrimary.value;
         });
 
         function updateDisplay() {
-            // Aggregate all players across all games, applying merges
             const aggregated = {};
             const playerGameResults = {};
 
@@ -672,7 +1070,7 @@
                     const player = data.playersInfos[playerId];
                     const rawName = player.names[0] || 'Unknown';
                     const name = resolveName(rawName);
-                    
+
                     if (!aggregated[name]) {
                         aggregated[name] = 0;
                         playerGameResults[name] = [];
@@ -681,10 +1079,8 @@
                 }
             }
 
-            // Build game-by-game results for each player
             for (const name of Object.keys(aggregated)) {
                 playerGameResults[name] = games.map(({ data }) => {
-                    // Sum all entries for this player in this game (could be multiple raw names)
                     let total = 0;
                     let found = false;
                     for (const p of Object.values(data.playersInfos)) {
@@ -698,15 +1094,14 @@
                 });
             }
 
-            const players = Object.entries(aggregated).map(([name, net]) => ({ 
-                name, 
+            const players = Object.entries(aggregated).map(([name, net]) => ({
+                name,
                 net,
                 breakdown: playerGameResults[name]
             }));
 
             const transactions = calculateSettlements(players);
 
-            // Update settlements display
             if (games.length === 0) {
                 results.classList.remove('visible');
             } else if (transactions.length === 0) {
@@ -720,12 +1115,10 @@
                 results.classList.add('visible');
             }
 
-            // Update merge section
             if (games.length === 0) {
                 mergeSection.classList.remove('visible');
             } else {
                 mergeSection.classList.add('visible');
-                // Clean selectedForMerge of names that no longer exist
                 const allRaw = new Set(getAllRawNames());
                 for (const name of [...selectedForMerge]) {
                     if (!allRaw.has(name)) selectedForMerge.delete(name);
@@ -733,7 +1126,6 @@
                 renderMergeUI();
             }
 
-            // Update games list
             if (games.length === 0) {
                 gamesSection.classList.remove('visible');
             } else {
@@ -746,16 +1138,15 @@
                 gamesSection.classList.add('visible');
             }
 
-            // Update leaderboard
             if (games.length === 0) {
                 leaderboardSection.classList.remove('visible');
             } else {
                 players.sort((a, b) => b.net - a.net);
-                
+
                 leaderboardList.innerHTML = players.map((player, index) => {
                     const totalClass = player.net > 0 ? 'positive' : player.net < 0 ? 'negative' : 'zero';
                     const totalSign = player.net >= 0 ? '+' : '-';
-                    
+
                     const breakdownStr = player.breakdown.map(val => {
                         if (val === null) return '---';
                         const sign = val >= 0 ? '+' : '-';
@@ -771,7 +1162,7 @@
                         </div>
                     `;
                 }).join('');
-                
+
                 leaderboardSection.classList.add('visible');
             }
         }
@@ -789,9 +1180,9 @@
             while (i < losers.length && j < winners.length) {
                 const loser = losers[i];
                 const winner = winners[j];
-                
+
                 const amount = Math.min(loser.net, winner.net);
-                
+
                 if (amount > 0) {
                     transactions.push({
                         from: loser.name,
@@ -810,10 +1201,164 @@
             return transactions;
         }
 
+        // ── History Tab Rendering ──
+        function renderHistory() {
+            const performanceBody = document.getElementById('performanceBody');
+
+            if (!historyLoaded) {
+                performanceBody.innerHTML = '<tr><td colspan="6" class="history-loading">Loading...</td></tr>';
+                setTimeout(renderHistory, 500);
+                return;
+            }
+
+            const games = allHistoricalGames.slice().sort((a, b) => a.date.localeCompare(b.date));
+
+            if (games.length === 0) {
+                performanceBody.innerHTML = '<tr><td colspan="6" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
+                if (pnlChart) { pnlChart.destroy(); pnlChart = null; }
+                return;
+            }
+
+            // Build per-player data
+            const playerData = {};
+            for (const game of games) {
+                for (const [pid, info] of Object.entries(game.players)) {
+                    const rawName = info.names[0] || 'Unknown';
+                    const name = resolveName(rawName);
+
+                    if (!playerData[name]) playerData[name] = [];
+
+                    const existing = playerData[name].find(e => e.gameId === game.gameId);
+                    if (existing) {
+                        existing.net += info.net;
+                    } else {
+                        playerData[name].push({ date: game.date, gameId: game.gameId, net: info.net });
+                    }
+                }
+            }
+
+            // Unique dates
+            const allDates = [...new Set(games.map(g => g.date))].sort();
+
+            // Chart colors
+            const colors = [
+                '#4a6fa5', '#4ade80', '#f87171', '#fbbf24', '#a78bfa',
+                '#f472b6', '#34d399', '#fb923c', '#60a5fa', '#e879f9',
+                '#22d3ee', '#facc15', '#ef4444', '#14b8a6', '#8b5cf6'
+            ];
+
+            // Build cumulative datasets
+            const datasets = [];
+            let colorIdx = 0;
+
+            // Sort players by total P&L descending for legend order
+            const sortedPlayers = Object.entries(playerData).sort((a, b) => {
+                const totalA = a[1].reduce((s, r) => s + r.net, 0);
+                const totalB = b[1].reduce((s, r) => s + r.net, 0);
+                return totalB - totalA;
+            });
+
+            for (const [name, results] of sortedPlayers) {
+                let cumulative = 0;
+                const data = allDates.map(date => {
+                    const entries = results.filter(r => r.date === date);
+                    for (const e of entries) cumulative += e.net;
+                    return cumulative;
+                });
+
+                datasets.push({
+                    label: name,
+                    data,
+                    borderColor: colors[colorIdx % colors.length],
+                    backgroundColor: 'transparent',
+                    tension: 0.2,
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                    borderWidth: 2
+                });
+                colorIdx++;
+            }
+
+            // Render chart
+            const ctx = document.getElementById('pnlChart').getContext('2d');
+            if (pnlChart) pnlChart.destroy();
+
+            pnlChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: allDates, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#888', maxRotation: 45 },
+                            grid: { color: '#2a3a5a' }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#888',
+                                callback: v => (v >= 0 ? '+' : '') + v.toLocaleString()
+                            },
+                            grid: { color: '#2a3a5a' }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#ccc', usePointStyle: true, pointStyle: 'circle' }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => {
+                                    const val = ctx.raw;
+                                    const sign = val >= 0 ? '+' : '';
+                                    return ` ${ctx.dataset.label}: ${sign}${val.toLocaleString()}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Render performance table
+            const rows = [];
+            for (const [name, results] of Object.entries(playerData)) {
+                const totalPnL = results.reduce((s, r) => s + r.net, 0);
+                const gameCount = results.length;
+                const avgPnL = Math.round(totalPnL / gameCount);
+                const best = Math.max(...results.map(r => r.net));
+                const worst = Math.min(...results.map(r => r.net));
+                rows.push({ name, gameCount, totalPnL, avgPnL, best, worst });
+            }
+
+            rows.sort((a, b) => b.totalPnL - a.totalPnL);
+
+            performanceBody.innerHTML = rows.map(row => {
+                const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
+                return `<tr>
+                    <td style="font-weight:600">${escapeHtml(row.name)}</td>
+                    <td>${row.gameCount}</td>
+                    <td class="${cls(row.totalPnL)}">${formatSigned(row.totalPnL)}</td>
+                    <td class="${cls(row.avgPnL)}">${formatSigned(row.avgPnL)}</td>
+                    <td class="${cls(row.best)}">${formatSigned(row.best)}</td>
+                    <td class="${cls(row.worst)}">${formatSigned(row.worst)}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function formatSigned(val) {
+            const sign = val >= 0 ? '+' : '-';
+            return `${sign}$${formatAmount(Math.abs(val))}`;
+        }
+
+        // ── Shared utilities ──
         function copyAllSettlements() {
             const items = document.querySelectorAll('.settlement-item');
             const text = Array.from(items).map(item => item.textContent).join('\n');
-            
+
             if (text) {
                 navigator.clipboard.writeText(text);
                 results.classList.add('copied');
@@ -825,7 +1370,7 @@
         function copyLeaderboard() {
             const items = document.querySelectorAll('.leaderboard-item');
             const text = Array.from(items).map(item => item.getAttribute('data-text')).join('\n');
-            
+
             if (text) {
                 navigator.clipboard.writeText(text);
                 leaderboardSection.classList.add('copied');
