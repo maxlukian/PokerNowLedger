@@ -838,13 +838,13 @@
                     <table class="performance-table" id="vpipTable">
                         <thead>
                             <tr>
-                                <th>Player</th>
-                                <th>Hands</th>
-                                <th>VPIP %</th>
-                                <th>Saw Flop %</th>
-                                <th>Saw Turn %</th>
-                                <th>Saw River %</th>
-                                <th>Showdown %</th>
+                                <th data-vsort="name">Player</th>
+                                <th data-vsort="handsDealt">Hands <span class="sort-arrow">▼</span></th>
+                                <th data-vsort="vpip">VPIP %</th>
+                                <th data-vsort="flop">Saw Flop %</th>
+                                <th data-vsort="turn">Saw Turn %</th>
+                                <th data-vsort="river">Saw River %</th>
+                                <th data-vsort="sd">Showdown %</th>
                             </tr>
                         </thead>
                         <tbody id="vpipBody"></tbody>
@@ -1815,6 +1815,55 @@
         }
 
         let handTypesChart = null;
+        let vpipSortKey = 'handsDealt';
+        let vpipSortAsc = false;
+        let vpipRows = [];
+
+        document.getElementById('vpipTable').querySelector('thead').addEventListener('click', function(e) {
+            const th = e.target.closest('th');
+            if (!th || !th.dataset.vsort) return;
+            const key = th.dataset.vsort;
+            if (vpipSortKey === key) {
+                vpipSortAsc = !vpipSortAsc;
+            } else {
+                vpipSortKey = key;
+                vpipSortAsc = key === 'name';
+            }
+            renderVpipTable();
+        });
+
+        function renderVpipTable() {
+            const sorted = vpipRows.slice().sort((a, b) => {
+                let cmp;
+                if (vpipSortKey === 'name') {
+                    cmp = a.name.localeCompare(b.name);
+                } else {
+                    cmp = a[vpipSortKey] - b[vpipSortKey];
+                }
+                return vpipSortAsc ? cmp : -cmp;
+            });
+
+            // Update sort arrows
+            document.querySelectorAll('#vpipTable th').forEach(th => {
+                const arrow = th.querySelector('.sort-arrow');
+                if (arrow) arrow.remove();
+                if (th.dataset.vsort === vpipSortKey) {
+                    th.insertAdjacentHTML('beforeend',
+                        `<span class="sort-arrow">${vpipSortAsc ? '▲' : '▼'}</span>`);
+                }
+            });
+
+            const vpipBar = (val) => `<span class="vpip-bar" style="width:${Math.max(val, 2)}px"></span>${val}%`;
+            document.getElementById('vpipBody').innerHTML = sorted.map(row => `<tr>
+                <td style="font-weight:600">${escapeHtml(row.name)}</td>
+                <td>${row.handsDealt}</td>
+                <td>${vpipBar(row.vpip)}</td>
+                <td>${vpipBar(row.flop)}</td>
+                <td>${vpipBar(row.turn)}</td>
+                <td>${vpipBar(row.river)}</td>
+                <td>${vpipBar(row.sd)}</td>
+            </tr>`).join('');
+        }
 
         function loadPlayerStats() {
             // Aggregate VPIP and hand type data across all games
@@ -1864,24 +1913,18 @@
             vpipWrapper.style.display = 'block';
 
             const pct = (num, den) => den > 0 ? Math.round(100 * num / den) : 0;
-            const vpipBar = (val) => `<span class="vpip-bar" style="width:${Math.max(val, 2)}px"></span>${val}%`;
 
-            document.getElementById('vpipBody').innerHTML = players.map(([name, s]) => {
-                const vpip = pct(s.vpipHands, s.handsDealt);
-                const flop = pct(s.sawFlop, s.handsDealt);
-                const turn = pct(s.sawTurn, s.handsDealt);
-                const river = pct(s.sawRiver, s.handsDealt);
-                const sd = pct(s.wentToShowdown, s.handsDealt);
-                return `<tr>
-                    <td style="font-weight:600">${escapeHtml(name)}</td>
-                    <td>${s.handsDealt}</td>
-                    <td>${vpipBar(vpip)}</td>
-                    <td>${vpipBar(flop)}</td>
-                    <td>${vpipBar(turn)}</td>
-                    <td>${vpipBar(river)}</td>
-                    <td>${vpipBar(sd)}</td>
-                </tr>`;
-            }).join('');
+            vpipRows = players.map(([name, s]) => ({
+                name,
+                handsDealt: s.handsDealt,
+                vpip: pct(s.vpipHands, s.handsDealt),
+                flop: pct(s.sawFlop, s.handsDealt),
+                turn: pct(s.sawTurn, s.handsDealt),
+                river: pct(s.sawRiver, s.handsDealt),
+                sd: pct(s.wentToShowdown, s.handsDealt),
+            }));
+
+            renderVpipTable();
 
             // ── Hand Types Chart ──
             document.getElementById('handTypesLoading').style.display = 'none';
