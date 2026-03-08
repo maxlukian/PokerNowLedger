@@ -1246,6 +1246,10 @@
                 playerStats: _extractPlayerStats(hands),
             };
 
+            // Store raw log entries
+            _updateLogProgress(`${pfx}${gameId.slice(0,12)}... saving raw log`);
+            await _storeRawLogs(gameId, allLogs);
+
             // Store to Firestore
             _updateLogProgress(`${pfx}${gameId.slice(0,12)}... saving ${handCount} hands`);
 
@@ -1310,6 +1314,23 @@
             // Or we can derive from the filename — caller passes filename separately
             const m = csvText.match(/The game's ID is (pgl[a-zA-Z0-9_-]+)/);
             return m ? m[1] : null;
+        }
+
+        // Store raw log entries to Firestore in chunks (subcollection)
+        async function _storeRawLogs(gameId, logs) {
+            const gameRef = db.collection('games').doc(gameId);
+            const CHUNK_SIZE = 500;
+            // Delete old chunks first
+            const existing = await gameRef.collection('raw_log').get();
+            const batch1 = db.batch();
+            existing.forEach(doc => batch1.delete(doc.ref));
+            if (!existing.empty) await batch1.commit();
+            // Write new chunks
+            for (let i = 0; i < logs.length; i += CHUNK_SIZE) {
+                const chunk = logs.slice(i, i + CHUNK_SIZE);
+                const chunkIndex = Math.floor(i / CHUNK_SIZE);
+                await gameRef.collection('raw_log').doc(`chunk_${String(chunkIndex).padStart(4, '0')}`).set({ entries: chunk });
+            }
         }
 
         function _extractDateFromLogs(logs) {
@@ -1383,6 +1404,10 @@
 
                     // Always update the date from CSV timestamps
                     await gameRef.update({ date });
+
+                    // Store raw log entries
+                    statusEl.innerHTML = `Saving raw log for ${gameId.slice(0,12)}...`;
+                    await _storeRawLogs(gameId, logs);
 
                     // Save parsed data (same as fetchAndParseLog)
                     const ps = parsed.playerStats;
