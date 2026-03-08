@@ -1238,7 +1238,7 @@
                         return `<div class="merged-group-item">
                             <span>
                                 <span class="merged-group-primary">${escapeHtml(merge.primary)}</span>
-                                <span class="merged-group-names"> ← ${merge.aliases.map(a => escapeHtml(a)).join(', ')}</span>
+                                <span class="merged-group-names"> ← ${merge.aliases.slice().sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase())).map(a => escapeHtml(a)).join(', ')}</span>
                             </span>
                             <button class="undo-merge-btn" onclick="undoMerge(${i})">undo</button>
                         </div>`;
@@ -1326,13 +1326,17 @@
 
             if (merges.length > 0) {
                 const unmergedForAdd = getHistoryUnmergedNames();
+                // Sort by primary name alphabetically for display
+                const sortedMergeIndices = merges.map((m, i) => i)
+                    .sort((a, b) => merges[a].primary.toLowerCase().localeCompare(merges[b].primary.toLowerCase()));
                 historyMergedGroups.innerHTML = '<div class="section-header" style="margin-top:4px;">Active Merges</div>' +
-                    merges.map((merge, i) => {
+                    sortedMergeIndices.map(i => {
+                        const merge = merges[i];
                         const addId = `addToMerge_${i}`;
                         return `<div class="merged-group-item" style="flex-wrap:wrap;">
                             <span style="flex:1;">
                                 <span class="merged-group-primary">${escapeHtml(merge.primary)}</span>
-                                <span class="merged-group-names"> ← ${merge.aliases.map(a => escapeHtml(a)).join(', ')}</span>
+                                <span class="merged-group-names"> ← ${merge.aliases.slice().sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase())).map(a => escapeHtml(a)).join(', ')}</span>
                             </span>
                             <button class="undo-merge-btn" onclick="toggleAddToMerge(${i})" title="Add name to this merge" style="margin-right:4px;">+ add</button>
                             <button class="undo-merge-btn" onclick="undoMerge(${i})">undo</button>
@@ -1554,7 +1558,9 @@
                 return;
             }
 
-            const games = allHistoricalGames.slice().sort((a, b) => a.date.localeCompare(b.date));
+            const games = allHistoricalGames.slice()
+                .filter(g => g.date && g.date !== 'unknown')
+                .sort((a, b) => a.date.localeCompare(b.date));
 
             if (games.length === 0) {
                 performanceBody.innerHTML = '<tr><td colspan="8" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
