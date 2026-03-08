@@ -1916,13 +1916,9 @@
 
                 // Aggregate overall
                 for (const [player, stats] of Object.entries(overallStats)) {
-                    // Stats keys may be clean names ("Dan") or dirty keys (' (1319) | #2 "Adi')
-                    let cleanName = player;
-                    if (player.includes('"')) {
-                        // Extract name after last " and strip any trailing '
-                        cleanName = player.split('"').pop().replace(/'/g, '').trim() || player;
-                    }
-                    _mergeIntoAgg(vpipByType.all, resolveName(cleanName), stats);
+                    // Skip dirty keys like ' (500) | #2 "David' — they duplicate clean entries
+                    if (player.includes('|') && player.includes('#')) continue;
+                    _mergeIntoAgg(vpipByType.all, resolveName(player), stats);
                 }
 
                 // Aggregate by game type
@@ -1931,11 +1927,8 @@
                     for (const [gt, players] of Object.entries(byTypeStats)) {
                         if (!vpipByType[gt]) vpipByType[gt] = {};
                         for (const [player, stats] of Object.entries(players)) {
-                            let cleanName = player;
-                            if (player.includes('"')) {
-                                cleanName = player.split('"').pop().replace(/'/g, '').trim() || player;
-                            }
-                            _mergeIntoAgg(vpipByType[gt], resolveName(cleanName), stats);
+                            if (player.includes('|') && player.includes('#')) continue;
+                            _mergeIntoAgg(vpipByType[gt], resolveName(player), stats);
                         }
                     }
                 }

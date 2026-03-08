@@ -387,6 +387,10 @@ def extract_player_stats(hands):
         gt = normalize_game_type(hand.get("game_type", ""))
 
         for player, actions in hand["player_actions"].items():
+            # Skip dirty keys like ' (500) | #2 "David' — duplicates of clean entries
+            if '|' in player and '#' in player:
+                continue
+
             # Overall
             if player not in player_stats:
                 player_stats[player] = _empty_stats()
