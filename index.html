@@ -858,6 +858,7 @@
                                 <th data-vsort="name">Player</th>
                                 <th data-vsort="handsDealt">Hands <span class="sort-arrow">▼</span></th>
                                 <th data-vsort="vpip">VPIP %</th>
+                                <th data-vsort="fold">Fold %</th>
                                 <th data-vsort="flop">Saw Flop %</th>
                                 <th data-vsort="turn">Saw Turn %</th>
                                 <th data-vsort="river">Saw River %</th>
@@ -1915,6 +1916,7 @@
                 <td style="font-weight:600">${escapeHtml(row.name)}</td>
                 <td>${row.handsDealt}</td>
                 <td>${vpipBar(row.vpip)}</td>
+                <td>${vpipBar(row.fold)}</td>
                 <td>${vpipBar(row.flop)}</td>
                 <td>${vpipBar(row.turn)}</td>
                 <td>${vpipBar(row.river)}</td>
@@ -1971,15 +1973,19 @@
 
             const pct = (num, den) => den > 0 ? Math.round(100 * num / den) : 0;
 
-            vpipRows = players.map(([name, s]) => ({
-                name,
-                handsDealt: s.handsDealt,
-                vpip: pct(s.vpipHands, s.handsDealt),
-                flop: pct(s.sawFlop, s.handsDealt),
-                turn: pct(s.sawTurn, s.handsDealt),
-                river: pct(s.sawRiver, s.handsDealt),
-                sd: pct(s.wentToShowdown, s.handsDealt),
-            }));
+            vpipRows = players.map(([name, s]) => {
+                const vpip = pct(s.vpipHands, s.handsDealt);
+                return {
+                    name,
+                    handsDealt: s.handsDealt,
+                    vpip,
+                    fold: 100 - vpip,
+                    flop: pct(s.sawFlop, s.handsDealt),
+                    turn: pct(s.sawTurn, s.handsDealt),
+                    river: pct(s.sawRiver, s.handsDealt),
+                    sd: pct(s.wentToShowdown, s.handsDealt),
+                };
+            });
 
             renderVpipTable();
 
