@@ -2312,7 +2312,6 @@
         }
 
 
-        let handTypesChart = null;
         let vpipSortKey = 'handsDealt';
         let vpipSortAsc = false;
         let vpipRows = [];
@@ -2467,7 +2466,6 @@
 
             if (players.length === 0) {
                 vpipLoading.textContent = 'No player stats available yet. Run fetch_logs.py to import game logs.';
-                document.getElementById('handTypesLoading').textContent = 'No data yet.';
                 return;
             }
 
@@ -2491,103 +2489,6 @@
             });
 
             renderVpipTable();
-
-            // ── Hand Types Chart ──
-            document.getElementById('handTypesLoading').style.display = 'none';
-            document.getElementById('handTypesChartWrapper').style.display = 'block';
-
-            const handTypeOrder = [
-                'Royal Flush', 'Straight Flush', 'Four of a Kind', 'Full House',
-                'Flush', 'Straight', 'Three of a Kind', 'Two Pair', 'Pair', 'High Card',
-                'Unknown/No Showdown'
-            ];
-
-            const handTypeDisplay = {
-                'Four of a Kind': 'Quads',
-                'Three of a Kind': 'Trips',
-            };
-            const htLabel = ht => handTypeDisplay[ht] || ht;
-
-            const handTypeColors = [
-                '#fbbf24', '#e879f9', '#f87171', '#4ade80', '#60a5fa',
-                '#34d399', '#fb923c', '#a78bfa', '#22d3ee', '#888',
-                '#444'
-            ];
-
-            const chartPlayers = players.filter(([_, s]) => {
-                return Object.keys(s.handTypes).some(ht => ht !== 'Unknown/No Showdown');
-            });
-
-            const datasets = handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown').map((ht, idx) => ({
-                label: htLabel(ht),
-                data: chartPlayers.map(([_, s]) => s.handTypes[ht] || 0),
-                backgroundColor: handTypeColors[idx],
-            }));
-
-            const ctx = document.getElementById('handTypesChart').getContext('2d');
-            if (handTypesChart) handTypesChart.destroy();
-
-            handTypesChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: chartPlayers.map(([name]) => name),
-                    datasets,
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            stacked: true,
-                            ticks: { color: '#888' },
-                            grid: { color: '#2a3a5a' },
-                        },
-                        y: {
-                            stacked: true,
-                            ticks: { color: '#888' },
-                            grid: { color: '#2a3a5a' },
-                            title: { display: true, text: 'Pots Won', color: '#888' },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            labels: { color: '#ccc', usePointStyle: true, pointStyle: 'rect' },
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}`,
-                            },
-                        },
-                    },
-                },
-            });
-
-            // ── Hand Types Table ──
-            document.getElementById('handTypesHeader').innerHTML =
-                '<th>Player</th>' + handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown')
-                    .map(ht => `<th style="font-size:0.7rem">${htLabel(ht)}</th>`).join('') + '<th>Total</th>';
-
-            document.getElementById('handTypesBody').innerHTML = chartPlayers.map(([name, s]) => {
-                const cells = handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown')
-                    .map(ht => {
-                        const v = s.handTypes[ht] || 0;
-                        return `<td style="color:${v > 0 ? '#ccc' : '#444'}">${v}</td>`;
-                    }).join('');
-                const total = Object.entries(s.handTypes)
-                    .filter(([ht]) => ht !== 'Unknown/No Showdown')
-                    .reduce((sum, [_, c]) => sum + c, 0);
-                return `<tr>
-                    <td style="font-weight:600">${escapeHtml(name)}</td>
-                    ${cells}
-                    <td style="font-weight:600">${total}</td>
-                </tr>`;
-            }).join('');
-        }
-
-        function toggleHandTypesView(view) {
-            document.getElementById('handTypesChartContainer').style.display = view === 'chart' ? 'block' : 'none';
-            document.getElementById('handTypesTableContainer').style.display = view === 'table' ? 'block' : 'none';
-            if (view === 'chart' && handTypesChart) handTypesChart.resize();
         }
 
         function formatSigned(val) {
