@@ -1348,10 +1348,12 @@
         async function handleCSVUpload(files) {
             const statusEl = document.getElementById('csvStatus');
 
-            let processed = 0, failed = 0;
-            for (const file of files) {
-                if (!file.name.endsWith('.csv')) { failed++; continue; }
-                statusEl.innerHTML = `Processing ${file.name}...`;
+            const fileList = Array.from(files).filter(f => f.name.endsWith('.csv'));
+            if (fileList.length === 0) { statusEl.innerHTML = '<span class="error">No CSV files found.</span>'; return; }
+            let processed = 0, failed = 0, results = [];
+            for (let fi = 0; fi < fileList.length; fi++) {
+                const file = fileList[fi];
+                statusEl.innerHTML = `Processing file ${fi+1}/${fileList.length}: ${file.name}...`;
                 try {
                     const text = await file.text();
                     const logs = _parseCSVtoLogs(text);
@@ -1428,17 +1430,16 @@
                     });
 
                     processed++;
-                    statusEl.innerHTML = `<span class="success">✓ ${file.name}: ${handCount} hands parsed and saved.</span>`;
+                    results.push(`<span class="success">✓ ${file.name}: ${handCount} hands</span>`);
                 } catch (err) {
                     failed++;
                     console.error(`CSV error for ${file.name}:`, err);
-                    statusEl.innerHTML = `<span class="error">✗ ${file.name}: ${err.message}</span>`;
+                    results.push(`<span class="error">✗ ${file.name}: ${err.message}</span>`);
                 }
             }
 
-            if (files.length > 1) {
-                statusEl.innerHTML = `<span class="success">Done: ${processed} files processed${failed ? `, ${failed} failed` : ''}.</span>`;
-            }
+            statusEl.innerHTML = results.join('<br>') +
+                (fileList.length > 1 ? `<br><br><strong>${processed} processed${failed ? `, ${failed} failed` : ''}</strong>` : '');
 
             // Reload history
             loadHistoricalGames();
