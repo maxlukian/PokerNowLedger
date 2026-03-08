@@ -1984,6 +1984,12 @@
                 'Unknown/No Showdown'
             ];
 
+            const handTypeDisplay = {
+                'Four of a Kind': 'Quads',
+                'Three of a Kind': 'Trips',
+            };
+            const htLabel = ht => handTypeDisplay[ht] || ht;
+
             const handTypeColors = [
                 '#fbbf24', '#e879f9', '#f87171', '#4ade80', '#60a5fa',
                 '#34d399', '#fb923c', '#a78bfa', '#22d3ee', '#888',
@@ -1995,7 +2001,7 @@
             });
 
             const datasets = handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown').map((ht, idx) => ({
-                label: ht,
+                label: htLabel(ht),
                 data: chartPlayers.map(([_, s]) => s.handTypes[ht] || 0),
                 backgroundColor: handTypeColors[idx],
             }));
@@ -2041,7 +2047,7 @@
             // ── Hand Types Table ──
             document.getElementById('handTypesHeader').innerHTML =
                 '<th>Player</th>' + handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown')
-                    .map(ht => `<th style="font-size:0.7rem">${ht}</th>`).join('') + '<th>Total</th>';
+                    .map(ht => `<th style="font-size:0.7rem">${htLabel(ht)}</th>`).join('') + '<th>Total</th>';
 
             document.getElementById('handTypesBody').innerHTML = chartPlayers.map(([name, s]) => {
                 const cells = handTypeOrder.filter(ht => ht !== 'Unknown/No Showdown')
