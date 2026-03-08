@@ -635,63 +635,6 @@
         }
         .chart-toggle-btn:hover { background: #2a3a5a; color: #fff; }
 
-        .hand-card {
-            background: #1a2744;
-            border-radius: 6px;
-            padding: 10px 12px;
-            margin-bottom: 8px;
-            border-left: 3px solid #4a6fa5;
-        }
-        .hand-card .hand-rank {
-            font-size: 0.7rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 3px;
-        }
-        .hand-card .hand-pot {
-            font-size: 1.05rem;
-            font-weight: 700;
-            color: #4ade80;
-            margin-bottom: 3px;
-        }
-        .hand-card .hand-winner {
-            color: #ccc;
-            font-size: 0.8rem;
-        }
-        .hand-card .hand-detail {
-            color: #888;
-            font-size: 0.75rem;
-            margin-top: 3px;
-        }
-        .hand-card .hand-cards {
-            color: #fbbf24;
-            font-size: 0.85rem;
-        }
-        .hand-card.bad-beat {
-            border-left-color: #f87171;
-        }
-        .hand-card.bad-beat .hand-pot {
-            color: #f87171;
-        }
-        .hand-card.allin {
-            border-left-color: #fbbf24;
-        }
-        .hand-card.allin .hand-pot {
-            color: #fbbf24;
-        }
-        .hand-highlights-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 16px;
-        }
-        .hand-highlights-column h4 {
-            color: #ccc;
-            font-size: 0.85rem;
-            margin-bottom: 10px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid #2a3a5a;
-        }
 
         .vpip-bar {
             display: inline-block;
@@ -854,24 +797,6 @@
                 <input type="range" id="chartRangeMax" min="0" max="100" value="100">
             </div>
 
-            <div class="history-section">
-                <h3 class="section-header">Hand Highlights</h3>
-                <div id="handHighlightsLoading" style="color:#888;text-align:center;padding:20px;">Loading hand data...</div>
-                <div class="hand-highlights-grid" id="handHighlights" style="display:none;">
-                    <div class="hand-highlights-column">
-                        <h4>Biggest Pots</h4>
-                        <div id="biggestPotsCards"></div>
-                    </div>
-                    <div class="hand-highlights-column">
-                        <h4>Bad Beats</h4>
-                        <div id="badBeatsCards"></div>
-                    </div>
-                    <div class="hand-highlights-column">
-                        <h4>All-In Showdowns</h4>
-                        <div id="allInCards"></div>
-                    </div>
-                </div>
-            </div>
 
             <div class="history-section">
                 <h3 class="section-header">Player Tendencies (VPIP)</h3>
@@ -2201,117 +2126,9 @@
         }
 
         function loadHandHighlights() {
-            // Aggregate biggest pots, bad beats, all-ins across all games
-            const allBiggestPots = [];
-            const allBadBeats = [];
-            const allInShowdowns = [];
-
-            for (const game of allHistoricalGames) {
-                const date = game.date;
-                const gid = game.gameId;
-                if (game.biggestPots) {
-                    for (const pot of game.biggestPots) {
-                        allBiggestPots.push({ ...pot, gameDate: date, gameId: gid });
-                    }
-                }
-                if (game.badBeats) {
-                    for (const bb of game.badBeats) {
-                        allBadBeats.push({ ...bb, gameDate: date, gameId: gid });
-                    }
-                }
-                if (game.allInShowdowns) {
-                    for (const ai of game.allInShowdowns) {
-                        allInShowdowns.push({ ...ai, gameDate: date, gameId: gid });
-                    }
-                }
-            }
-
-            const gameUrl = (gid) => `https://www.pokernow.com/games/${gid}`;
-
-            // Deduplicate: keep only one entry per hand (same gameId + handNum)
-            const dedup = (arr) => {
-                const seen = new Set();
-                return arr.filter(item => {
-                    const key = `${item.gameId}_${item.handNum}`;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                });
-            };
-
-            allBiggestPots.sort((a, b) => b.totalPot - a.totalPot);
-            allBadBeats.sort((a, b) => b.totalPot - a.totalPot);
-            allInShowdowns.sort((a, b) => b.totalPot - a.totalPot);
-
-            const dedupBiggestPots = dedup(allBiggestPots);
-            const dedupBadBeats = dedup(allBadBeats);
-            const dedupAllInShowdowns = dedup(allInShowdowns);
-
-            const loading = document.getElementById('handHighlightsLoading');
-            const grid = document.getElementById('handHighlights');
-
-            if (allBiggestPots.length === 0 && allBadBeats.length === 0 && allInShowdowns.length === 0) {
-                loading.textContent = 'No hand data available yet. Run fetch_logs.py to import game logs.';
-                return;
-            }
-
-            loading.style.display = 'none';
-            grid.style.display = 'grid';
-
-            // Render biggest pots
-            document.getElementById('biggestPotsCards').innerHTML = dedupBiggestPots.slice(0, 10).map((pot, i) => {
-                const winnerLines = pot.winners.map(w => {
-                    const name = resolveName(w.player);
-                    const hand = w.handName || w.detail || '';
-                    return `<span class="hand-winner">${escapeHtml(name)}</span>` +
-                           (hand ? ` <span class="hand-detail">${escapeHtml(hand)}</span>` : '');
-                }).join('<br>');
-                return `<a href="${gameUrl(pot.gameId)}" target="_blank" style="text-decoration:none;display:block;">
-                <div class="hand-card">
-                    <div class="hand-rank">#${i + 1} &middot; Hand #${pot.handNum} &middot; ${pot.gameDate}</div>
-                    <div class="hand-pot">$${formatAmount(pot.totalPot)}</div>
-                    ${winnerLines}
-                </div></a>`;
-            }).join('') || '<div style="color:#888">No data yet</div>';
-
-            // Render bad beats (only where loser had at least a Flush)
-            const filteredBadBeats = dedupBadBeats.filter(bb => {
-                const loserRank = evaluateHandRank(bb.loserCards, bb.communityCards);
-                return loserRank >= 6; // Flush or better
-            });
-            document.getElementById('badBeatsCards').innerHTML = filteredBadBeats.slice(0, 10).map((bb, i) => {
-                const loser = resolveName(bb.loser);
-                const winner = resolveName(bb.winner);
-                const loserHand = evaluateHand(bb.loserCards, bb.communityCards);
-                const winnerHandName = bb.winnerHand || 'unknown';
-                return `<a href="${gameUrl(bb.gameId)}" target="_blank" style="text-decoration:none;display:block;">
-                <div class="hand-card bad-beat">
-                    <div class="hand-rank">#${i + 1} &middot; Hand #${bb.handNum} &middot; ${bb.gameDate}</div>
-                    <div class="hand-pot">$${formatAmount(bb.totalPot)} pot</div>
-                    <div class="hand-winner">${escapeHtml(winner)} with ${escapeHtml(winnerHandName)}</div>
-                    <div class="hand-detail">beat ${escapeHtml(loser)} with ${escapeHtml(loserHand.name)}</div>
-                    ${bb.communityCards ? `<div class="hand-detail" style="margin-top:6px;">Board: ${escapeHtml(bb.communityCards)}</div>` : ''}
-                </div></a>`;
-            }).join('') || '<div style="color:#888">No data yet</div>';
-
-            // Render all-in showdowns
-            document.getElementById('allInCards').innerHTML = dedupAllInShowdowns.slice(0, 10).map((ai, i) => {
-                const players = ai.shownHands.map(s => {
-                    const name = resolveName(s.player);
-                    const won = ai.winners.some(w => w.player === s.player);
-                    return `<span class="${won ? 'hand-winner' : 'hand-detail'}">${escapeHtml(name)}: <span class="hand-cards">${escapeHtml(s.cards)}</span>${won ? ' ✓' : ''}</span>`;
-                }).join('<br>');
-                const winnerHands = ai.winners.map(w => w.handName).filter(Boolean).join(', ');
-                return `<a href="${gameUrl(ai.gameId)}" target="_blank" style="text-decoration:none;display:block;">
-                <div class="hand-card allin">
-                    <div class="hand-rank">#${i + 1} &middot; Hand #${ai.handNum} &middot; ${ai.gameDate}</div>
-                    <div class="hand-pot">$${formatAmount(ai.totalPot)}</div>
-                    ${players}
-                    ${winnerHands ? `<div class="hand-detail">Won with: ${escapeHtml(winnerHands)}</div>` : ''}
-                    ${ai.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(ai.communityCards)}</div>` : ''}
-                </div></a>`;
-            }).join('') || '<div style="color:#888">No data yet</div>';
+            // Removed — hand highlights section no longer displayed
         }
+
 
         let handTypesChart = null;
         let vpipSortKey = 'handsDealt';
