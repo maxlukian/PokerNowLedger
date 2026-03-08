@@ -1179,6 +1179,7 @@
                 loadHistoricalGames();
 
                 // Fetch and parse logs sequentially (avoid rate limits)
+                console.log(`Starting log fetch for ${newGameIds.length} games...`);
                 (async () => {
                     for (const gameId of newGameIds) {
                         try {
@@ -1201,6 +1202,7 @@
         // ── Log fetching & parsing (client-side) ──
 
         async function fetchAndParseLog(gameId) {
+            console.log(`Fetching log for ${gameId}...`);
             // Fetch all log pages via proxy
             const allLogs = [];
             let cursor = null;
