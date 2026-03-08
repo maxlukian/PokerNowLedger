@@ -754,6 +754,7 @@
                     <button id="fetchBtn">Add</button>
                 </div>
                 <div class="error" id="error"></div>
+                <div id="logProgress" style="display:none;color:#fbbf24;font-size:0.8rem;padding:6px 12px;margin-top:4px;background:rgba(251,191,36,0.08);border-radius:6px;"></div>
             </div>
 
             <div class="results" id="results">
@@ -1126,7 +1127,25 @@
         }
 
         // Load on startup
-        Promise.all([loadHistoricalGames(), loadMergesFromFirestore()]);
+        Promise.all([loadHistoricalGames(), loadMergesFromFirestore()]).then(() => {
+            // Retry incomplete log fetches (started but never finished)
+            const incomplete = allHistoricalGames.filter(g => g.logFetchStarted && !g.logFetched);
+            if (incomplete.length > 0) {
+                console.log(`Retrying ${incomplete.length} incomplete log fetches...`);
+                (async () => {
+                    for (let i = 0; i < incomplete.length; i++) {
+                        const pfx = `[Retry ${i+1}/${incomplete.length}] `;
+                        try {
+                            await fetchAndParseLog(incomplete[i].gameId, pfx);
+                        } catch (err) {
+                            console.log(`Retry failed for ${incomplete[i].gameId}: ${err.message}`);
+                        }
+                    }
+                    _updateLogProgress('');
+                    loadHistoricalGames();
+                })();
+            }
+        });
 
         // ── Fetch games from PokerNow ──
         async function fetchGames() {
@@ -1181,13 +1200,15 @@
                 // Fetch and parse logs sequentially (avoid rate limits)
                 console.log(`Starting log fetch for ${newGameIds.length} games...`);
                 (async () => {
-                    for (const gameId of newGameIds) {
+                    for (let i = 0; i < newGameIds.length; i++) {
+                        const pfx = `[${i+1}/${newGameIds.length}] `;
                         try {
-                            await fetchAndParseLog(gameId);
+                            await fetchAndParseLog(newGameIds[i], pfx);
                         } catch (err) {
-                            console.log(`Log fetch for ${gameId}: ${err.message || 'no log available'}`);
+                            console.log(`Log fetch for ${newGameIds[i]}: ${err.message || 'no log available'}`);
                         }
                     }
+                    _updateLogProgress('');
                     // Reload history after all logs are parsed
                     loadHistoricalGames();
                 })();
@@ -1201,11 +1222,25 @@
 
         // ── Log fetching & parsing (client-side) ──
 
-        async function fetchAndParseLog(gameId) {
+        function _updateLogProgress(msg) {
+            const el = document.getElementById('logProgress');
+            if (msg) { el.style.display = 'block'; el.textContent = msg; }
+            else { el.style.display = 'none'; el.textContent = ''; }
+        }
+
+        async function fetchAndParseLog(gameId, progressPrefix) {
+            const pfx = progressPrefix || '';
             console.log(`Fetching log for ${gameId}...`);
+            _updateLogProgress(`${pfx}Fetching log for ${gameId.slice(0,12)}...`);
+
+            // Mark as started (for retry on incomplete)
+            const gameRef = db.collection('games').doc(gameId);
+            await gameRef.update({ logFetchStarted: true }).catch(() => {});
+
             // Fetch all log pages via proxy
             const allLogs = [];
             let cursor = null;
+            let pages = 0;
             while (true) {
                 let url = `/api/log?gameId=${gameId}`;
                 if (cursor) url += `&before_at=${encodeURIComponent(cursor)}`;
@@ -1216,9 +1251,16 @@
                 if (logs.length === 0) break;
                 allLogs.push(...logs);
                 cursor = logs[logs.length - 1].created_at;
+                pages++;
+                if (pages % 5 === 0) _updateLogProgress(`${pfx}${gameId.slice(0,12)}... ${allLogs.length} entries`);
                 if (logs.length < 50) break;
             }
-            if (allLogs.length === 0) return null;
+            if (allLogs.length === 0) {
+                _updateLogProgress('');
+                return null;
+            }
+
+            _updateLogProgress(`${pfx}${gameId.slice(0,12)}... parsing ${allLogs.length} entries`);
 
             const hands = _parseHands(allLogs);
             const handCount = Object.keys(hands).length;
@@ -1230,7 +1272,7 @@
             };
 
             // Store to Firestore
-            const gameRef = db.collection('games').doc(gameId);
+            _updateLogProgress(`${pfx}${gameId.slice(0,12)}... saving ${handCount} hands`);
 
             // playerStats → subcollection
             const ps = parsed.playerStats;
