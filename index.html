@@ -478,6 +478,67 @@
             background: transparent;
         }
 
+        /* ── Game Breakdown Table ── */
+        .game-breakdown-wrapper {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+        .game-breakdown-table {
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+        .game-breakdown-table th,
+        .game-breakdown-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid #1a2744;
+            text-align: right;
+        }
+        .game-breakdown-table th {
+            background: #0f0f1a;
+            color: #888;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .game-breakdown-table th:first-child,
+        .game-breakdown-table td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            background: #16213e;
+            text-align: left;
+            font-weight: 600;
+            min-width: 100px;
+        }
+        .game-breakdown-table th:first-child {
+            z-index: 3;
+            background: #0f0f1a;
+        }
+        .game-breakdown-table th a {
+            color: #6b9fd4;
+            text-decoration: none;
+            font-size: 0.7rem;
+        }
+        .game-breakdown-table th a:hover {
+            text-decoration: underline;
+            color: #8bbef0;
+        }
+        .game-breakdown-table tr:hover td {
+            background: #1a2744;
+        }
+        .game-breakdown-table tr:hover td:first-child {
+            background: #1e2d4a;
+        }
+        .game-breakdown-table .gb-pos { color: #4ade80; }
+        .game-breakdown-table .gb-neg { color: #f87171; }
+        .game-breakdown-table .gb-zero { color: #555; }
+        .game-breakdown-table .gb-total {
+            font-weight: 700;
+            border-left: 2px solid #2a3a5a;
+        }
+
         /* ── CSV Upload ── */
         .csv-upload-zone {
             border: 2px dashed #2a3a5a;
@@ -845,6 +906,16 @@
                             </table>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Game-by-Game Breakdown</h3>
+                <div class="game-breakdown-wrapper" id="gameBreakdownWrapper">
+                    <table class="game-breakdown-table" id="gameBreakdownTable">
+                        <thead><tr id="gameBreakdownHeader"></tr></thead>
+                        <tbody id="gameBreakdownBody"></tbody>
+                    </table>
                 </div>
             </div>
 
@@ -2154,7 +2225,8 @@
                     </tr>`;
                 }).join('');
 
-                // Render hand highlights and player stats
+                // Render breakdown table and player stats
+                renderGameBreakdown(games, playerData);
                 loadHandHighlights();
                 loadPlayerStats();
 
@@ -2162,6 +2234,68 @@
                 performanceBody.innerHTML = `<tr><td colspan="8" style="color:red;padding:20px;">RENDER ERROR: ${renderErr.message}<br><pre style="font-size:11px;margin-top:8px;color:#f88">${renderErr.stack}</pre></td></tr>`;
                 console.error('renderHistory error:', renderErr);
             }
+        }
+
+        function renderGameBreakdown(games, playerData) {
+            const header = document.getElementById('gameBreakdownHeader');
+            const body = document.getElementById('gameBreakdownBody');
+
+            if (!games.length) { body.innerHTML = ''; header.innerHTML = ''; return; }
+
+            // Sort games by date, then gameId
+            const sorted = games.slice().sort((a, b) => {
+                const dc = (a.date || 'zzz').localeCompare(b.date || 'zzz');
+                return dc !== 0 ? dc : (a.gameId || '').localeCompare(b.gameId || '');
+            });
+
+            // Get all player names sorted by total P&L descending
+            const playerTotals = {};
+            for (const [name, results] of Object.entries(playerData)) {
+                playerTotals[name] = results.reduce((s, r) => s + r.net, 0);
+            }
+            const playerNames = Object.keys(playerTotals).sort((a, b) => playerTotals[b] - playerTotals[a]);
+
+            // Build a lookup: playerName -> gameId -> net
+            const lookup = {};
+            for (const [name, results] of Object.entries(playerData)) {
+                lookup[name] = {};
+                for (const r of results) lookup[name][r.gameId] = r.net;
+            }
+
+            // Header row: Player | Total | game1 | game2 | ...
+            const fmt = (d) => {
+                if (!d || d === 'unknown' || d === 'undated') return '?';
+                // "2026-03-04" -> "3/4"
+                const parts = d.split('-');
+                return `${+parts[1]}/${+parts[2]}`;
+            };
+            header.innerHTML = '<th>Player</th><th class="gb-total">Total</th>' +
+                sorted.map(g => {
+                    const label = fmt(g.date);
+                    const url = `https://www.pokernow.com/games/${g.gameId}`;
+                    return `<th><a href="${url}" target="_blank" title="${g.date || '?'}\n${g.gameId}">${label}</a></th>`;
+                }).join('');
+
+            // Body rows
+            const cls = v => v > 0 ? 'gb-pos' : v < 0 ? 'gb-neg' : 'gb-zero';
+            const fmtVal = v => {
+                if (v === undefined || v === null) return '';
+                const sign = v >= 0 ? '+' : '-';
+                return `<span class="${cls(v)}">${sign}$${formatAmount(v)}</span>`;
+            };
+
+            body.innerHTML = playerNames.map(name => {
+                const total = playerTotals[name];
+                const cells = sorted.map(g => {
+                    const net = lookup[name] && lookup[name][g.gameId];
+                    return `<td>${net !== undefined ? fmtVal(net) : ''}</td>`;
+                }).join('');
+                return `<tr>
+                    <td>${escapeHtml(name)}</td>
+                    <td class="gb-total ${cls(total)}">${fmtVal(total)}</td>
+                    ${cells}
+                </tr>`;
+            }).join('');
         }
 
         function loadHandHighlights() {
