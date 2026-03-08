@@ -2179,7 +2179,7 @@
                 if (hasUndated) allDates.unshift('undated');
 
                 // Compute date span for annualization
-                const validDates = allDates.filter(d => d !== 'undated');
+                const validDates = allDates.filter(d => d !== 'undated' && /^\d{4}-\d{2}-\d{2}$/.test(d));
                 const firstDate = validDates.length > 0 ? new Date(validDates[0]) : new Date();
                 const lastDate = validDates.length > 0 ? new Date(validDates[validDates.length - 1]) : new Date();
                 const totalDays = Math.max((lastDate - firstDate) / (1000 * 60 * 60 * 24), 1);
@@ -2225,8 +2225,8 @@
                 // Render table rows
                 const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
                 performanceBody.innerHTML = rows.map(row => {
-                    const fmtColored = v => `<span class="${cls(v)}">${v >= 0 ? '+' : '-'}$${formatAmount(v)}</span>`;
-                    const fmtRange = `${fmtColored(row.annualLo)} to ${fmtColored(row.annualHi)}`;
+                    const fmtColored = v => isNaN(v) ? '—' : `<span class="${cls(v)}">${v >= 0 ? '+' : '-'}$${formatAmount(v)}</span>`;
+                    const fmtRange = (isNaN(row.annualLo) || isNaN(row.annualHi)) ? '—' : `${fmtColored(row.annualLo)} to ${fmtColored(row.annualHi)}`;
                     return `<tr>
                         <td style="font-weight:600">${escapeHtml(row.name)}</td>
                         <td>${row.gameCount}</td>
