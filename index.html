@@ -2276,18 +2276,11 @@
                 for (const r of results) lookup[name][r.gameId] = r.net;
             }
 
-            // Header row: Player | Total | game1 | game2 | ...
-            const fmt = (d) => {
-                if (!d || d === 'unknown' || d === 'undated') return '?';
-                // "2026-03-04" -> "3/4"
-                const parts = d.split('-');
-                return `${+parts[1]}/${+parts[2]}`;
-            };
+            // Header row: Player | Total | #1 | #2 | ...
             header.innerHTML = '<th>Player</th><th class="gb-total">Total</th>' +
-                sorted.map(g => {
-                    const label = fmt(g.date);
+                sorted.map((g, i) => {
                     const url = `https://www.pokernow.com/games/${g.gameId}`;
-                    return `<th><a href="${url}" target="_blank" title="${g.date || '?'}\n${g.gameId}">${label}</a></th>`;
+                    return `<th><a href="${url}" target="_blank" title="${g.date || '?'}\n${g.gameId}">#${i + 1}</a></th>`;
                 }).join('');
 
             // Body rows
