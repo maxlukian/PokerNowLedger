@@ -1813,9 +1813,24 @@
 
             const gameUrl = (gid) => `https://www.pokernow.com/games/${gid}`;
 
+            // Deduplicate: keep only one entry per hand (same gameId + handNum)
+            const dedup = (arr) => {
+                const seen = new Set();
+                return arr.filter(item => {
+                    const key = `${item.gameId}_${item.handNum}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            };
+
             allBiggestPots.sort((a, b) => b.totalPot - a.totalPot);
             allBadBeats.sort((a, b) => b.totalPot - a.totalPot);
             allInShowdowns.sort((a, b) => b.totalPot - a.totalPot);
+
+            const dedupBiggestPots = dedup(allBiggestPots);
+            const dedupBadBeats = dedup(allBadBeats);
+            const dedupAllInShowdowns = dedup(allInShowdowns);
 
             const loading = document.getElementById('handHighlightsLoading');
             const grid = document.getElementById('handHighlights');
@@ -1829,7 +1844,7 @@
             grid.style.display = 'grid';
 
             // Render biggest pots
-            document.getElementById('biggestPotsCards').innerHTML = allBiggestPots.slice(0, 10).map((pot, i) => {
+            document.getElementById('biggestPotsCards').innerHTML = dedupBiggestPots.slice(0, 10).map((pot, i) => {
                 const winnerLines = pot.winners.map(w => {
                     const name = resolveName(w.player);
                     const hand = w.handName || w.detail || '';
@@ -1845,7 +1860,7 @@
             }).join('') || '<div style="color:#888">No data yet</div>';
 
             // Render bad beats
-            document.getElementById('badBeatsCards').innerHTML = allBadBeats.slice(0, 10).map((bb, i) => {
+            document.getElementById('badBeatsCards').innerHTML = dedupBadBeats.slice(0, 10).map((bb, i) => {
                 const loser = resolveName(bb.loser);
                 const winner = resolveName(bb.winner);
                 return `<a href="${gameUrl(bb.gameId)}" target="_blank" style="text-decoration:none;display:block;">
@@ -1860,7 +1875,7 @@
             }).join('') || '<div style="color:#888">No data yet</div>';
 
             // Render all-in showdowns
-            document.getElementById('allInCards').innerHTML = allInShowdowns.slice(0, 10).map((ai, i) => {
+            document.getElementById('allInCards').innerHTML = dedupAllInShowdowns.slice(0, 10).map((ai, i) => {
                 const players = ai.shownHands.map(s => {
                     const name = resolveName(s.player);
                     const won = ai.winners.some(w => w.player === s.player);
