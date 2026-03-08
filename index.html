@@ -2192,11 +2192,12 @@
                 const lastDate = validDates.length > 0 ? new Date(validDates[validDates.length - 1]) : new Date();
                 const totalDays = Math.max((lastDate - firstDate) / (1000 * 60 * 60 * 24), 1);
 
-                // Build performance rows
+                // Build performance rows (only players with 10+ games)
                 const rows = [];
                 for (const [name, results] of Object.entries(playerData)) {
-                    const totalPnL = results.reduce((s, r) => s + r.net, 0);
                     const gameCount = results.length;
+                    if (gameCount < 10) continue;
+                    const totalPnL = results.reduce((s, r) => s + r.net, 0);
                     const avgPnL = Math.round(totalPnL / gameCount);
                     const best = Math.max(...results.map(r => r.net));
                     const worst = Math.min(...results.map(r => r.net));
@@ -2271,9 +2272,10 @@
                 return dc !== 0 ? dc : (a.gameId || '').localeCompare(b.gameId || '');
             });
 
-            // Get all player names sorted by total P&L descending
+            // Get all player names sorted by total P&L descending (10+ games only)
             const playerTotals = {};
             for (const [name, results] of Object.entries(playerData)) {
+                if (results.length < 10) continue;
                 playerTotals[name] = results.reduce((s, r) => s + r.net, 0);
             }
             const playerNames = Object.keys(playerTotals).sort((a, b) => playerTotals[b] - playerTotals[a]);
