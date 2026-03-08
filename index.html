@@ -478,6 +478,34 @@
             background: transparent;
         }
 
+        /* ── CSV Upload ── */
+        .csv-upload-zone {
+            border: 2px dashed #2a3a5a;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 12px;
+        }
+        .csv-upload-zone:hover, .csv-upload-zone.drag-over {
+            border-color: #4a6fa5;
+            color: #aaa;
+            background: rgba(74, 111, 165, 0.08);
+        }
+        .csv-upload-zone input[type="file"] {
+            display: none;
+        }
+        .csv-upload-status {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #888;
+        }
+        .csv-upload-status .success { color: #4ade80; }
+        .csv-upload-status .error { color: #f87171; }
+
         /* ── History Tab ── */
         .history-section {
             background: #16213e;
@@ -755,6 +783,11 @@
                 </div>
                 <div class="error" id="error"></div>
                 <div id="logProgress" style="display:none;"></div>
+                <div class="csv-upload-zone" id="csvDropZone" onclick="document.getElementById('csvFileInput').click()">
+                    Drop PokerNow CSV log files here, or click to browse
+                    <input type="file" id="csvFileInput" accept=".csv" multiple>
+                </div>
+                <div class="csv-upload-status" id="csvStatus"></div>
             </div>
 
             <div class="results" id="results">
@@ -1237,16 +1270,33 @@
             const gameRef = db.collection('games').doc(gameId);
             await gameRef.update({ logFetchStarted: true }).catch(() => {});
 
-            // Fetch all log pages via proxy
+            // Fetch all log pages via proxy (with retry + backoff)
             const allLogs = [];
             let cursor = null;
             let pages = 0;
+            let consecutiveErrors = 0;
+            const MAX_RETRIES = 5;
             while (true) {
                 let url = `/api/log?gameId=${gameId}`;
                 if (cursor) url += `&before_at=${encodeURIComponent(cursor)}`;
-                const resp = await fetch(url);
-                if (!resp.ok) break;
-                const data = await resp.json();
+                let resp, data;
+                try {
+                    resp = await fetch(url);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    data = await resp.json();
+                    consecutiveErrors = 0;
+                } catch (err) {
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= MAX_RETRIES) {
+                        console.log(`${pfx}Giving up after ${MAX_RETRIES} consecutive errors at page ${pages}`);
+                        break;
+                    }
+                    const wait = Math.min(2000 * Math.pow(2, consecutiveErrors - 1), 30000);
+                    console.log(`${pfx}Request failed (attempt ${consecutiveErrors}/${MAX_RETRIES}), retrying in ${wait/1000}s...`);
+                    _updateLogProgress(`${pfx}${gameId.slice(0,12)}... retry in ${wait/1000}s`);
+                    await new Promise(r => setTimeout(r, wait));
+                    continue;
+                }
                 const logs = data.logs || [];
                 if (logs.length === 0) break;
                 allLogs.push(...logs);
@@ -1296,6 +1346,158 @@
             console.log(`Log for ${gameId}: ${allLogs.length} entries, ${handCount} hands`);
             return parsed;
         }
+
+        // ── CSV Upload Handling ──
+
+        function _parseCSVtoLogs(csvText) {
+            // PokerNow CSV format: "entry","at","order"
+            // The "entry" column has the same log messages as the API's "msg" field
+            // The "at" column has timestamps
+            const lines = csvText.split('\n');
+            const logs = [];
+            // Skip header row
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                // Parse CSV - handle quoted fields with commas inside
+                const fields = [];
+                let field = '', inQuotes = false;
+                for (let j = 0; j < line.length; j++) {
+                    const c = line[j];
+                    if (c === '"' && !inQuotes) { inQuotes = true; continue; }
+                    if (c === '"' && inQuotes) {
+                        if (j + 1 < line.length && line[j+1] === '"') { field += '"'; j++; continue; }
+                        inQuotes = false; continue;
+                    }
+                    if (c === ',' && !inQuotes) { fields.push(field); field = ''; continue; }
+                    field += c;
+                }
+                fields.push(field);
+                if (fields.length >= 2) {
+                    logs.push({ msg: fields[0], at: fields[1] || '' });
+                }
+            }
+            return logs;
+        }
+
+        function _extractGameIdFromCSV(csvText) {
+            // PokerNow CSVs often reference game IDs in entries like "The game's ID is pgl..."
+            // Or we can derive from the filename — caller passes filename separately
+            const m = csvText.match(/The game's ID is (pgl[a-zA-Z0-9_-]+)/);
+            return m ? m[1] : null;
+        }
+
+        async function handleCSVUpload(files) {
+            const statusEl = document.getElementById('csvStatus');
+            const date = document.getElementById('gameDate').value;
+            if (!date) {
+                statusEl.innerHTML = '<span class="error">Please select a date first.</span>';
+                return;
+            }
+
+            let processed = 0, failed = 0;
+            for (const file of files) {
+                if (!file.name.endsWith('.csv')) { failed++; continue; }
+                statusEl.innerHTML = `Processing ${file.name}...`;
+                try {
+                    const text = await file.text();
+                    const logs = _parseCSVtoLogs(text);
+                    if (logs.length === 0) throw new Error('No log entries found');
+
+                    // Try to extract game ID from CSV content or filename
+                    let gameId = _extractGameIdFromCSV(text);
+                    if (!gameId) {
+                        // Try filename: PokerNow downloads are like "poker_now_log_pglXXX.csv"
+                        const fm = file.name.match(/(pgl[a-zA-Z0-9_-]+)/);
+                        gameId = fm ? fm[1] : null;
+                    }
+                    if (!gameId) throw new Error('Could not determine game ID from CSV');
+
+                    console.log(`CSV ${file.name}: ${logs.length} entries, gameId=${gameId}`);
+
+                    // Parse hands using existing parser (logs are already newest-first in CSV, same as API)
+                    const hands = _parseHands(logs);
+                    const handCount = Object.keys(hands).length;
+                    console.log(`CSV ${file.name}: parsed ${handCount} hands`);
+
+                    const parsed = {
+                        biggestPots: _extractBiggestPots(hands),
+                        badBeats: _extractBadBeats(hands),
+                        allInShowdowns: _extractAllInShowdowns(hands),
+                        playerStats: _extractPlayerStats(hands),
+                    };
+
+                    // Ensure game doc exists in Firestore
+                    const gameRef = db.collection('games').doc(gameId);
+                    const existing = await gameRef.get();
+                    if (!existing.exists) {
+                        // Need player session data — try to fetch from API
+                        try {
+                            const resp = await fetch(`/api/players?gameId=${gameId}`);
+                            if (resp.ok) {
+                                const data = await resp.json();
+                                await saveGameToFirestore(gameId, data, date);
+                            } else {
+                                // Create minimal game doc
+                                await gameRef.set({ gameId, date, addedAt: firebase.firestore.FieldValue.serverTimestamp(), players: {} });
+                            }
+                        } catch (e) {
+                            await gameRef.set({ gameId, date, addedAt: firebase.firestore.FieldValue.serverTimestamp(), players: {} });
+                        }
+                    }
+
+                    // Save parsed data (same as fetchAndParseLog)
+                    const ps = parsed.playerStats;
+                    if (ps.overall) {
+                        await gameRef.collection('parsed_data').doc('playerStats').set({ players: ps.overall });
+                        for (const [gt, players] of Object.entries(ps.byType || {})) {
+                            await gameRef.collection('parsed_data').doc(`playerStats_${gt}`).set({ players });
+                        }
+                    }
+
+                    await gameRef.update({
+                        logFetched: true,
+                        logEntryCount: logs.length,
+                        handCount,
+                        biggestPots: parsed.biggestPots,
+                        badBeats: parsed.badBeats,
+                        allInShowdowns: parsed.allInShowdowns,
+                    });
+
+                    processed++;
+                    statusEl.innerHTML = `<span class="success">✓ ${file.name}: ${handCount} hands parsed and saved.</span>`;
+                } catch (err) {
+                    failed++;
+                    console.error(`CSV error for ${file.name}:`, err);
+                    statusEl.innerHTML = `<span class="error">✗ ${file.name}: ${err.message}</span>`;
+                }
+            }
+
+            if (files.length > 1) {
+                statusEl.innerHTML = `<span class="success">Done: ${processed} files processed${failed ? `, ${failed} failed` : ''}.</span>`;
+            }
+
+            // Reload history
+            loadHistoricalGames();
+        }
+
+        // Wire up CSV drag-and-drop + file input
+        (function() {
+            const zone = document.getElementById('csvDropZone');
+            const input = document.getElementById('csvFileInput');
+
+            zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+            zone.addEventListener('dragleave', () => { zone.classList.remove('drag-over'); });
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+                handleCSVUpload(e.dataTransfer.files);
+            });
+            input.addEventListener('change', () => {
+                if (input.files.length) handleCSVUpload(input.files);
+                input.value = '';
+            });
+        })();
 
         const HAND_RANKS = {
             'Royal Flush': 10, 'Straight Flush': 9, 'Four of a Kind': 8,
