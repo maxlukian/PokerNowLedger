@@ -1066,30 +1066,37 @@
         // ── Firestore: save game ──
         async function saveGameToFirestore(gameId, data, date, isCents) {
             const docRef = db.collection('games').doc(gameId);
-            const existing = await docRef.get();
-            if (existing.exists) return;
 
             const divisor = isCents ? 100 : 1;
             const players = {};
             for (const [pid, info] of Object.entries(data.playersInfos)) {
+                // Use inGame (stack on table) if buyOut is 0
+                const effectiveOut = info.buyOutSum + (info.inGame || 0);
                 players[pid] = {
                     names: info.names,
                     buyInSum: info.buyInSum / divisor,
-                    buyOutSum: info.buyOutSum / divisor,
-                    net: info.net / divisor
+                    buyOutSum: effectiveOut / divisor,
+                    net: (effectiveOut - info.buyInSum) / divisor
                 };
             }
 
-            await docRef.set({
-                gameId,
-                date,
-                addedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                isCents: isCents || false,
-                players
-            });
+            const existing = await docRef.get();
+            if (existing.exists) {
+                await docRef.update({ players });
+            } else {
+                await docRef.set({
+                    gameId,
+                    date,
+                    addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    isCents: isCents || false,
+                    players
+                });
+            }
 
-            // Add to local history array
-            allHistoricalGames.push({ gameId, date, players });
+            // Update local history array
+            const idx = allHistoricalGames.findIndex(g => g.gameId === gameId);
+            if (idx >= 0) allHistoricalGames[idx].players = players;
+            else allHistoricalGames.push({ gameId, date, players });
         }
 
         // ── Firestore: load all games ──
@@ -1220,13 +1227,14 @@
                     }
 
                     const data = await response.json();
-                    // Apply cents conversion to local display data
-                    if (isCents) {
-                        for (const pid of Object.keys(data.playersInfos)) {
-                            data.playersInfos[pid].buyInSum /= 100;
-                            data.playersInfos[pid].buyOutSum /= 100;
-                            data.playersInfos[pid].net /= 100;
-                        }
+                    // Compute correct net including inGame stack
+                    const divisor = isCents ? 100 : 1;
+                    for (const pid of Object.keys(data.playersInfos)) {
+                        const p = data.playersInfos[pid];
+                        const effectiveOut = p.buyOutSum + (p.inGame || 0);
+                        p.net = (effectiveOut - p.buyInSum) / divisor;
+                        p.buyOutSum = effectiveOut / divisor;
+                        p.buyInSum = p.buyInSum / divisor;
                     }
                     games.push({ gameId, data, date });
 
@@ -2255,6 +2263,7 @@
             const body = document.getElementById('gameBreakdownBody');
 
             if (!games.length) { body.innerHTML = ''; header.innerHTML = ''; return; }
+            console.log(`renderGameBreakdown: ${games.length} games, ${Object.keys(playerData).length} players`);
 
             // Sort games by date, then gameId
             const sorted = games.slice().sort((a, b) => {
