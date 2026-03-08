@@ -1763,14 +1763,15 @@
             document.getElementById('badBeatsCards').innerHTML = filteredBadBeats.slice(0, 10).map((bb, i) => {
                 const loser = resolveName(bb.loser);
                 const winner = resolveName(bb.winner);
+                const loserHand = evaluateHand(bb.loserCards, bb.communityCards);
+                const winnerHandName = bb.winnerHand || 'unknown';
                 return `<a href="${gameUrl(bb.gameId)}" target="_blank" style="text-decoration:none;display:block;">
                 <div class="hand-card bad-beat">
                     <div class="hand-rank">#${i + 1} &middot; Hand #${bb.handNum} &middot; ${bb.gameDate}</div>
                     <div class="hand-pot">$${formatAmount(bb.totalPot)} pot</div>
-                    <div class="hand-winner">${escapeHtml(loser)} lost</div>
-                    <div class="hand-cards">Showed: ${escapeHtml(bb.loserCards)}</div>
-                    <div class="hand-detail">to ${escapeHtml(winner)} ${bb.winnerHand ? 'with ' + escapeHtml(bb.winnerHand) : ''}</div>
-                    ${bb.communityCards ? `<div class="hand-detail">Board: ${escapeHtml(bb.communityCards)}</div>` : ''}
+                    <div class="hand-winner">${escapeHtml(winner)} with ${escapeHtml(winnerHandName)}</div>
+                    <div class="hand-detail">beat ${escapeHtml(loser)} with ${escapeHtml(loserHand.name)}</div>
+                    ${bb.communityCards ? `<div class="hand-detail" style="margin-top:6px;">Board: ${escapeHtml(bb.communityCards)}</div>` : ''}
                 </div></a>`;
             }).join('') || '<div style="color:#888">No data yet</div>';
 
@@ -2109,9 +2110,15 @@
         // Evaluate best poker hand rank from hole cards + community cards strings
         // Returns rank: 1=High Card, 2=Pair, 3=Two Pair, 4=Three of a Kind,
         //   5=Straight, 6=Flush, 7=Full House, 8=Four of a Kind, 9=Straight Flush, 10=Royal Flush
-        function evaluateHandRank(holeStr, boardStr) {
-            if (!holeStr || !boardStr) return 0;
+        // Evaluate best poker hand from hole cards + community cards
+        // Returns { rank: 1-10, name: "Flush, A High" }
+        function evaluateHand(holeStr, boardStr) {
+            const NONE = { rank: 0, name: '' };
+            if (!holeStr || !boardStr) return NONE;
             const suitMap = {'♠':'s','♥':'h','♦':'d','♣':'c','s':'s','h':'h','d':'d','c':'c'};
+            const rankName = r => ({2:'2',3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',11:'J',12:'Q',13:'K',14:'A'}[r] || '?');
+            const rankWord = r => ({2:'2s',3:'3s',4:'4s',5:'5s',6:'6s',7:'7s',8:'8s',9:'9s',10:'10s',11:'Jacks',12:'Queens',13:'Kings',14:'Aces'}[r] || '?');
+            const highWord = r => ({2:'2',3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',11:'Jack',12:'Queen',13:'King',14:'Ace'}[r] || '?');
             const parseCards = str => {
                 const cards = [];
                 const clean = str.replace(/[\[\]]/g, '');
@@ -2120,51 +2127,54 @@
                     if (!t) continue;
                     const suit = suitMap[t.slice(-1)];
                     let rank = t.slice(0, -1).trim();
-                    const rankMap = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
-                    const r = rankMap[rank];
+                    const rm = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+                    const r = rm[rank];
                     if (r && suit) cards.push({ rank: r, suit });
                 }
                 return cards;
             };
             const all = [...parseCards(holeStr), ...parseCards(boardStr)];
-            if (all.length < 5) return 0;
+            if (all.length < 5) return NONE;
 
-            // Check all 5-card combos (C(7,5)=21 max)
-            let bestRank = 0;
             const combos = (arr, k) => {
                 if (k === 0) return [[]];
                 if (arr.length < k) return [];
                 const [first, ...rest] = arr;
-                const with_ = combos(rest, k - 1).map(c => [first, ...c]);
-                const without = combos(rest, k);
-                return [...with_, ...without];
+                return [...combos(rest, k - 1).map(c => [first, ...c]), ...combos(rest, k)];
             };
+
+            let best = { rank: 0, name: 'High Card', sortKey: [] };
 
             for (const hand of combos(all, 5)) {
                 const ranks = hand.map(c => c.rank).sort((a, b) => a - b);
                 const suits = hand.map(c => c.suit);
                 const isFlush = suits.every(s => s === suits[0]);
-                const unique = [...new Set(ranks)];
-                const isStraight = unique.length === 5 && (ranks[4] - ranks[0] === 4);
-                const isWheel = unique.length === 5 && ranks[0] === 2 && ranks[1] === 3 && ranks[2] === 4 && ranks[3] === 5 && ranks[4] === 14;
+                const isStraight = new Set(ranks).size === 5 && (ranks[4] - ranks[0] === 4);
+                const isWheel = new Set(ranks).size === 5 && ranks[0]===2 && ranks[1]===3 && ranks[2]===4 && ranks[3]===5 && ranks[4]===14;
                 const counts = {};
                 ranks.forEach(r => counts[r] = (counts[r] || 0) + 1);
                 const freq = Object.values(counts).sort((a, b) => b - a);
+                // Sort count entries by [count desc, rank desc]
+                const byCount = Object.entries(counts).sort((a,b) => b[1]-a[1] || b[0]-a[0]);
 
-                let rank = 1; // High card
-                if (isFlush && isStraight && ranks[0] === 10) rank = 10; // Royal Flush
-                else if (isFlush && (isStraight || isWheel)) rank = 9; // Straight Flush
-                else if (freq[0] === 4) rank = 8; // Four of a Kind
-                else if (freq[0] === 3 && freq[1] === 2) rank = 7; // Full House
-                else if (isFlush) rank = 6; // Flush
-                else if (isStraight || isWheel) rank = 5; // Straight
-                else if (freq[0] === 3) rank = 4; // Three of a Kind
-                else if (freq[0] === 2 && freq[1] === 2) rank = 3; // Two Pair
-                else if (freq[0] === 2) rank = 2; // Pair
+                let rank = 1, name = `${highWord(ranks[4])} High`;
+                if (isFlush && isStraight && ranks[0] === 10) { rank = 10; name = 'Royal Flush'; }
+                else if (isFlush && (isStraight || isWheel)) { rank = 9; name = `Straight Flush, ${highWord(isWheel ? 5 : ranks[4])} High`; }
+                else if (freq[0] === 4) { rank = 8; name = `Four of a Kind, ${rankWord(+byCount[0][0])}`; }
+                else if (freq[0] === 3 && freq[1] === 2) { rank = 7; name = `Full House, ${rankWord(+byCount[0][0])} over ${rankWord(+byCount[1][0])}`; }
+                else if (isFlush) { rank = 6; name = `Flush, ${highWord(ranks[4])} High`; }
+                else if (isStraight || isWheel) { rank = 5; name = `Straight, ${highWord(isWheel ? 5 : ranks[4])} High`; }
+                else if (freq[0] === 3) { rank = 4; name = `Three of a Kind, ${rankWord(+byCount[0][0])}`; }
+                else if (freq[0] === 2 && freq[1] === 2) { rank = 3; name = `Two Pair, ${rankWord(+byCount[0][0])} & ${rankWord(+byCount[1][0])}`; }
+                else if (freq[0] === 2) { rank = 2; name = `Pair of ${rankWord(+byCount[0][0])}`; }
 
-                if (rank > bestRank) bestRank = rank;
+                if (rank > best.rank) best = { rank, name };
             }
-            return bestRank;
+            return best;
+        }
+
+        function evaluateHandRank(holeStr, boardStr) {
+            return evaluateHand(holeStr, boardStr).rank;
         }
 
         function showToast() {
