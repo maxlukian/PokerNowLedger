@@ -2384,7 +2384,10 @@
                     if (total === 0) return '<td class="h2h-na">—</td>';
                     const pct = Math.round(wins[row][col] / total * 100);
                     const cls = pct > 50 ? 'h2h-good' : pct < 50 ? 'h2h-bad' : 'h2h-even';
-                    return `<td class="${cls}" title="${wins[row][col]}W / ${total} sessions">${pct}%</td>`;
+                    const winTip = pct >= 50
+                        ? `Over ${total} shared sessions, ${row} won ${pct}% of the time vs. ${col}`
+                        : `Over ${total} shared sessions, ${row} only won ${pct}% of the time vs. ${col}`;
+                    return `<td class="${cls}" title="${winTip}">${pct}%</td>`;
                 }).join('');
                 return `<tr><td>${escapeHtml(row)}</td>${cells}</tr>`;
             }).join('');
@@ -2399,7 +2402,10 @@
                     const avg = Math.round(netSums[row][col] / total);
                     const cls = avg > 0 ? 'h2h-good' : avg < 0 ? 'h2h-bad' : 'h2h-even';
                     const sign = avg >= 0 ? '+' : '-';
-                    return `<td class="${cls}" title="${total} shared sessions">${sign}$${Math.abs(avg).toLocaleString()}</td>`;
+                    const edgeTip = avg >= 0
+                        ? `Over ${total} shared sessions, ${row} won an average of $${Math.abs(avg).toLocaleString()} vs. ${col}`
+                        : `Over ${total} shared sessions, ${row} lost an average of $${Math.abs(avg).toLocaleString()} vs. ${col}`;
+                    return `<td class="${cls}" title="${edgeTip}">${sign}$${Math.abs(avg).toLocaleString()}</td>`;
                 }).join('');
                 return `<tr><td>${escapeHtml(row)}</td>${cells}</tr>`;
             }).join('');
