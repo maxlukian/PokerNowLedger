@@ -551,6 +551,57 @@
             border-left: 2px solid #2a3a5a;
         }
 
+        /* ── Head-to-Head Matrix ── */
+        .h2h-wrapper {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+        .h2h-table {
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+        .h2h-table th,
+        .h2h-table td {
+            padding: 5px 8px;
+            border-bottom: 1px solid #1a2744;
+            text-align: center;
+            min-width: 56px;
+        }
+        .h2h-table th {
+            background: #0f0f1a;
+            color: #888;
+            font-weight: 600;
+        }
+        .h2h-table th:first-child,
+        .h2h-table td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            background: #16213e;
+            text-align: left;
+            font-weight: 600;
+            min-width: 100px;
+        }
+        .h2h-table th:first-child {
+            z-index: 3;
+            background: #0f0f1a;
+        }
+        .h2h-table tr:hover td {
+            background: #1a2744;
+        }
+        .h2h-table tr:hover td:first-child {
+            background: #1e2d4a;
+        }
+        .h2h-table .h2h-diag {
+            background: #0a0a14;
+            color: #333;
+        }
+        .h2h-table .h2h-good { color: #4ade80; }
+        .h2h-table .h2h-bad { color: #f87171; }
+        .h2h-table .h2h-even { color: #888; }
+        .h2h-table .h2h-na { color: #333; }
+
         /* ── CSV Upload ── */
         .csv-upload-zone {
             border: 2px dashed #2a3a5a;
@@ -901,6 +952,28 @@
                 </div>
             </div>
 
+
+            <div class="history-section">
+                <h3 class="section-header">Head-to-Head Win Rates</h3>
+                <p style="color:#666;font-size:0.8rem;margin:-8px 0 10px;">% of shared sessions where row player finished with a higher net than column player</p>
+                <div class="h2h-wrapper">
+                    <table class="h2h-table" id="h2hWinTable">
+                        <thead><tr id="h2hWinHeader"></tr></thead>
+                        <tbody id="h2hWinBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="history-section">
+                <h3 class="section-header">Head-to-Head Avg Edge</h3>
+                <p style="color:#666;font-size:0.8rem;margin:-8px 0 10px;">Row player's avg net minus column player's avg net in shared sessions</p>
+                <div class="h2h-wrapper">
+                    <table class="h2h-table" id="h2hEdgeTable">
+                        <thead><tr id="h2hEdgeHeader"></tr></thead>
+                        <tbody id="h2hEdgeBody"></tbody>
+                    </table>
+                </div>
+            </div>
 
             <div class="history-section">
                 <h3 class="section-header">Game-by-Game Breakdown</h3>
@@ -2240,6 +2313,7 @@
 
                 // Render breakdown table and player stats
                 renderGameBreakdown(games, playerData);
+                renderHeadToHead(games, playerData);
                 loadHandHighlights();
                 loadPlayerStats();
 
@@ -2247,6 +2321,88 @@
                 performanceBody.innerHTML = `<tr><td colspan="8" style="color:red;padding:20px;">RENDER ERROR: ${renderErr.message}<br><pre style="font-size:11px;margin-top:8px;color:#f88">${renderErr.stack}</pre></td></tr>`;
                 console.error('renderHistory error:', renderErr);
             }
+        }
+
+        function renderHeadToHead(games, playerData) {
+            // Only include players with 10+ games
+            const qualifiedNames = Object.keys(playerData).filter(n => playerData[n].length >= 10);
+            if (qualifiedNames.length === 0) return;
+
+            // Build per-game player nets: { gameId: { name: net } }
+            const gameNets = {};
+            for (const game of games) {
+                if (!game.players) continue;
+                const nets = {};
+                for (const [pid, info] of Object.entries(game.players)) {
+                    const rawName = (info.names && info.names[0]) || 'Unknown';
+                    const name = resolveName(rawName);
+                    nets[name] = (nets[name] || 0) + info.net;
+                }
+                gameNets[game.gameId] = nets;
+            }
+
+            // Build h2h data
+            const wins = {}, shared = {}, netSums = {};
+            for (const name of qualifiedNames) {
+                wins[name] = {}; shared[name] = {}; netSums[name] = {};
+                for (const other of qualifiedNames) {
+                    wins[name][other] = 0;
+                    shared[name][other] = 0;
+                    netSums[name][other] = 0; // sum of (row's net - col's net) across shared games
+                }
+            }
+
+            for (const [gid, nets] of Object.entries(gameNets)) {
+                const present = qualifiedNames.filter(n => nets[n] !== undefined);
+                for (let i = 0; i < present.length; i++) {
+                    for (let j = i + 1; j < present.length; j++) {
+                        const a = present[i], b = present[j];
+                        shared[a][b]++; shared[b][a]++;
+                        netSums[a][b] += nets[a] - nets[b];
+                        netSums[b][a] += nets[b] - nets[a];
+                        if (nets[a] > nets[b]) wins[a][b]++;
+                        else if (nets[b] > nets[a]) wins[b][a]++;
+                    }
+                }
+            }
+
+            // Sort players by total P&L descending
+            const sorted = qualifiedNames.slice().sort((a, b) => {
+                const aTotal = playerData[a].reduce((s, r) => s + r.net, 0);
+                const bTotal = playerData[b].reduce((s, r) => s + r.net, 0);
+                return bTotal - aTotal;
+            });
+
+            const headerHtml = '<th></th>' + sorted.map(n => `<th>${escapeHtml(n)}</th>`).join('');
+
+            // === Win Rate table ===
+            document.getElementById('h2hWinHeader').innerHTML = headerHtml;
+            document.getElementById('h2hWinBody').innerHTML = sorted.map(row => {
+                const cells = sorted.map(col => {
+                    if (row === col) return '<td class="h2h-diag">—</td>';
+                    const total = shared[row][col];
+                    if (total === 0) return '<td class="h2h-na">—</td>';
+                    const pct = Math.round(wins[row][col] / total * 100);
+                    const cls = pct > 50 ? 'h2h-good' : pct < 50 ? 'h2h-bad' : 'h2h-even';
+                    return `<td class="${cls}" title="${wins[row][col]}W / ${total} sessions">${pct}%</td>`;
+                }).join('');
+                return `<tr><td>${escapeHtml(row)}</td>${cells}</tr>`;
+            }).join('');
+
+            // === Avg Edge table ===
+            document.getElementById('h2hEdgeHeader').innerHTML = headerHtml;
+            document.getElementById('h2hEdgeBody').innerHTML = sorted.map(row => {
+                const cells = sorted.map(col => {
+                    if (row === col) return '<td class="h2h-diag">—</td>';
+                    const total = shared[row][col];
+                    if (total === 0) return '<td class="h2h-na">—</td>';
+                    const avg = Math.round(netSums[row][col] / total);
+                    const cls = avg > 0 ? 'h2h-good' : avg < 0 ? 'h2h-bad' : 'h2h-even';
+                    const sign = avg >= 0 ? '+' : '-';
+                    return `<td class="${cls}" title="${total} shared sessions">${sign}$${Math.abs(avg).toLocaleString()}</td>`;
+                }).join('');
+                return `<tr><td>${escapeHtml(row)}</td>${cells}</tr>`;
+            }).join('');
         }
 
         function renderGameBreakdown(games, playerData) {
