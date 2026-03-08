@@ -783,6 +783,9 @@
                 <div class="input-row">
                     <input type="text" id="gameLink" placeholder="Paste one or more PokerNow links...">
                     <input type="date" id="gameDate">
+                    <label style="display:flex;align-items:center;gap:4px;color:#888;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
+                        <input type="checkbox" id="centsMode"> Cents?
+                    </label>
                     <button id="fetchBtn">Add</button>
                 </div>
                 <div class="error" id="error"></div>
@@ -1061,18 +1064,19 @@
         }
 
         // ── Firestore: save game ──
-        async function saveGameToFirestore(gameId, data, date) {
+        async function saveGameToFirestore(gameId, data, date, isCents) {
             const docRef = db.collection('games').doc(gameId);
             const existing = await docRef.get();
             if (existing.exists) return;
 
+            const divisor = isCents ? 100 : 1;
             const players = {};
             for (const [pid, info] of Object.entries(data.playersInfos)) {
                 players[pid] = {
                     names: info.names,
-                    buyInSum: info.buyInSum,
-                    buyOutSum: info.buyOutSum,
-                    net: info.net
+                    buyInSum: info.buyInSum / divisor,
+                    buyOutSum: info.buyOutSum / divisor,
+                    net: info.net / divisor
                 };
             }
 
@@ -1080,6 +1084,7 @@
                 gameId,
                 date,
                 addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                isCents: isCents || false,
                 players
             });
 
@@ -1204,6 +1209,7 @@
             hideError();
             fetchBtn.disabled = true;
             fetchBtn.textContent = 'Loading...';
+            const isCents = document.getElementById('centsMode').checked;
 
             try {
                 for (const gameId of newGameIds) {
@@ -1214,10 +1220,18 @@
                     }
 
                     const data = await response.json();
+                    // Apply cents conversion to local display data
+                    if (isCents) {
+                        for (const pid of Object.keys(data.playersInfos)) {
+                            data.playersInfos[pid].buyInSum /= 100;
+                            data.playersInfos[pid].buyOutSum /= 100;
+                            data.playersInfos[pid].net /= 100;
+                        }
+                    }
                     games.push({ gameId, data, date });
 
                     // Save to Firestore
-                    await saveGameToFirestore(gameId, data, date);
+                    await saveGameToFirestore(gameId, data, date, isCents);
                 }
 
                 gameLink.value = '';
