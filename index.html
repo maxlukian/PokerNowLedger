@@ -512,7 +512,18 @@
             font-weight: 600;
             min-width: 100px;
         }
+        .game-breakdown-table th:nth-child(2),
+        .game-breakdown-table td:nth-child(2) {
+            position: sticky;
+            left: 100px;
+            z-index: 2;
+            background: #16213e;
+        }
         .game-breakdown-table th:first-child {
+            z-index: 3;
+            background: #0f0f1a;
+        }
+        .game-breakdown-table th:nth-child(2) {
             z-index: 3;
             background: #0f0f1a;
         }
@@ -528,7 +539,8 @@
         .game-breakdown-table tr:hover td {
             background: #1a2744;
         }
-        .game-breakdown-table tr:hover td:first-child {
+        .game-breakdown-table tr:hover td:first-child,
+        .game-breakdown-table tr:hover td:nth-child(2) {
             background: #1e2d4a;
         }
         .game-breakdown-table .gb-pos { color: #4ade80; }
