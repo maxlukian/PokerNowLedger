@@ -1079,9 +1079,20 @@
                 if (withLogs.length > 0) {
                     const statsPromises = withLogs.map(async ({ docSnap, idx }) => {
                         try {
+                            // Fetch overall stats
                             const statsDoc = await docSnap.ref.collection('parsed_data').doc('playerStats').get();
                             if (statsDoc.exists) {
-                                allHistoricalGames[idx].playerStats = statsDoc.data().players;
+                                const overall = statsDoc.data().players;
+                                // Try to fetch per-game-type stats
+                                const byType = {};
+                                for (const gt of ['NLH', 'PLO', 'PLO8']) {
+                                    try {
+                                        const gtDoc = await docSnap.ref.collection('parsed_data').doc(`playerStats_${gt}`).get();
+                                        if (gtDoc.exists) byType[gt] = gtDoc.data().players;
+                                    } catch (e) { /* skip */ }
+                                }
+                                allHistoricalGames[idx].playerStats = Object.keys(byType).length > 0
+                                    ? { overall, byType } : overall;
                             }
                         } catch (e) { /* skip */ }
                     });

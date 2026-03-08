@@ -478,10 +478,21 @@ def store_game_log(game_id, logs, parsed):
     # Count hands
     hand_count = sum(1 for l in logs if "-- starting hand" in l["msg"])
 
-    # Store playerStats in a separate subcollection doc to avoid index entry limits
-    game_ref.collection("parsed_data").document("playerStats").set({
-        "players": parsed["playerStats"],
-    })
+    # Store playerStats in separate subcollection docs to avoid index entry limits
+    ps = parsed["playerStats"]
+    if isinstance(ps, dict) and "overall" in ps:
+        game_ref.collection("parsed_data").document("playerStats").set({
+            "players": ps["overall"],
+        })
+        # Store each game type separately
+        for gt, players in ps.get("byType", {}).items():
+            game_ref.collection("parsed_data").document(f"playerStats_{gt}").set({
+                "players": players,
+            })
+    else:
+        game_ref.collection("parsed_data").document("playerStats").set({
+            "players": ps,
+        })
 
     # Update game document with summary (keep highlights on the main doc)
     game_ref.update({
