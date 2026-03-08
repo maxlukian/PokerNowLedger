@@ -1559,8 +1559,7 @@
             }
 
             const games = allHistoricalGames.slice()
-                .filter(g => g.date && g.date !== 'unknown')
-                .sort((a, b) => a.date.localeCompare(b.date));
+                .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
             if (games.length === 0) {
                 performanceBody.innerHTML = '<tr><td colspan="8" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
@@ -1581,13 +1580,17 @@
                     if (existing) {
                         existing.net += info.net;
                     } else {
-                        playerData[name].push({ date: game.date, gameId: game.gameId, net: info.net });
+                        const gameDate = (!game.date || game.date === 'unknown') ? 'undated' : game.date;
+                        playerData[name].push({ date: gameDate, gameId: game.gameId, net: info.net });
                     }
                 }
             }
 
-            // Unique dates
-            const allDates = [...new Set(games.map(g => g.date))].sort();
+            // Unique dates — put 'unknown'/empty dates at the start as "Undated"
+            const rawDates = [...new Set(games.map(g => g.date || 'unknown'))].sort();
+            const allDates = rawDates.filter(d => d && d !== 'unknown');
+            const hasUndated = rawDates.includes('unknown') || rawDates.includes('');
+            if (hasUndated) allDates.unshift('undated');
 
             // Chart colors
             const colors = [
@@ -1632,7 +1635,9 @@
 
             // Format dates for display (e.g., "Jan 15" or "Jan 15 '26")
             const formatDateLabel = d => {
+                if (d === 'undated') return 'Undated';
                 const dt = new Date(d + 'T00:00:00');
+                if (isNaN(dt)) return d;
                 const mon = dt.toLocaleString('en-US', { month: 'short' });
                 const day = dt.getDate();
                 return `${mon} ${day}`;
@@ -1712,12 +1717,15 @@
                     }
                 }
             });
+            const rangeStart = validDates.length > 0 ? validDates[0] : 'Undated';
+            const rangeEnd = validDates.length > 0 ? validDates[validDates.length - 1] : 'Undated';
             document.getElementById('chartRangeLabel').textContent =
-                `${allDates[0]} to ${allDates[allDates.length - 1]}`;
+                `${rangeStart} to ${rangeEnd}`;
 
-            // Compute overall date span for annualization
-            const firstDate = new Date(allDates[0]);
-            const lastDate = new Date(allDates[allDates.length - 1]);
+            // Compute overall date span for annualization (using only valid dates)
+            const validDates = allDates.filter(d => d !== 'undated');
+            const firstDate = validDates.length > 0 ? new Date(validDates[0]) : new Date();
+            const lastDate = validDates.length > 0 ? new Date(validDates[validDates.length - 1]) : new Date();
             const totalDays = Math.max((lastDate - firstDate) / (1000 * 60 * 60 * 24), 1);
 
             // Render performance table
