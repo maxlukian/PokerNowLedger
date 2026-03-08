@@ -1170,11 +1170,6 @@
 
                     // Save to Firestore
                     await saveGameToFirestore(gameId, data, date);
-
-                    // Fetch and parse game log in the background
-                    fetchAndParseLog(gameId).then(() => loadHistoricalGames()).catch(err => {
-                        console.log(`Log fetch for ${gameId}: ${err.message || 'no log available'}`);
-                    });
                 }
 
                 gameLink.value = '';
@@ -1182,6 +1177,19 @@
 
                 // Reload history so new games appear on History tab immediately
                 loadHistoricalGames();
+
+                // Fetch and parse logs sequentially (avoid rate limits)
+                (async () => {
+                    for (const gameId of newGameIds) {
+                        try {
+                            await fetchAndParseLog(gameId);
+                        } catch (err) {
+                            console.log(`Log fetch for ${gameId}: ${err.message || 'no log available'}`);
+                        }
+                    }
+                    // Reload history after all logs are parsed
+                    loadHistoricalGames();
+                })();
             } catch (err) {
                 showError(`Error: ${err.message}`);
             } finally {
