@@ -1062,20 +1062,25 @@
         // ── Firestore: load all games ──
         async function loadHistoricalGames() {
             try {
-                const snapshot = await db.collection('games').orderBy('date', 'asc').get();
+                const snapshot = await db.collection('games').get();
                 allHistoricalGames = snapshot.docs.map(doc => doc.data());
 
-                // Fetch playerStats from subcollection for games that don't have it inline
-                const statsPromises = snapshot.docs.map(async (docSnap, idx) => {
-                    if (allHistoricalGames[idx].playerStats) return; // already inline (old format)
-                    try {
-                        const statsDoc = await docSnap.ref.collection('parsed_data').doc('playerStats').get();
-                        if (statsDoc.exists) {
-                            allHistoricalGames[idx].playerStats = statsDoc.data().players;
-                        }
-                    } catch (e) { /* skip if no stats */ }
-                });
-                await Promise.all(statsPromises);
+                // Only fetch playerStats for games that have logs stored
+                const withLogs = snapshot.docs
+                    .map((docSnap, idx) => ({ docSnap, idx, data: allHistoricalGames[idx] }))
+                    .filter(({ data }) => data.logFetched && !data.playerStats);
+
+                if (withLogs.length > 0) {
+                    const statsPromises = withLogs.map(async ({ docSnap, idx }) => {
+                        try {
+                            const statsDoc = await docSnap.ref.collection('parsed_data').doc('playerStats').get();
+                            if (statsDoc.exists) {
+                                allHistoricalGames[idx].playerStats = statsDoc.data().players;
+                            }
+                        } catch (e) { /* skip */ }
+                    });
+                    await Promise.all(statsPromises);
+                }
 
                 historyLoaded = true;
             } catch (err) {
