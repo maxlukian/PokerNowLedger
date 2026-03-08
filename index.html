@@ -1103,7 +1103,10 @@
                 }
             } catch (err) {
                 console.error('Failed to load history:', err);
+                document.getElementById('performanceBody').innerHTML =
+                    `<tr><td colspan="8" style="color:#f87171;text-align:center;padding:20px;">Failed to load history: ${err.message}</td></tr>`;
             }
+            historyLoaded = true;
         }
 
         // ── Firestore: save merges ──
@@ -1581,239 +1584,207 @@
                 return;
             }
 
-            const games = allHistoricalGames.slice()
-                .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+            // === RENDER TABLE FIRST (before chart) ===
+            try {
+                const games = allHistoricalGames.slice()
+                    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
-            if (games.length === 0) {
-                performanceBody.innerHTML = '<tr><td colspan="8" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
-                if (pnlChart) { pnlChart.destroy(); pnlChart = null; }
-                return;
-            }
+                if (games.length === 0) {
+                    performanceBody.innerHTML = '<tr><td colspan="8" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
+                    if (pnlChart) { pnlChart.destroy(); pnlChart = null; }
+                    return;
+                }
 
-            // Build per-player data
-            const playerData = {};
-            for (const game of games) {
-                for (const [pid, info] of Object.entries(game.players)) {
-                    const rawName = info.names[0] || 'Unknown';
-                    const name = resolveName(rawName);
-
-                    if (!playerData[name]) playerData[name] = [];
-
-                    const existing = playerData[name].find(e => e.gameId === game.gameId);
-                    if (existing) {
-                        existing.net += info.net;
-                    } else {
-                        const gameDate = (!game.date || game.date === 'unknown') ? 'undated' : game.date;
-                        playerData[name].push({ date: gameDate, gameId: game.gameId, net: info.net });
+                // Build per-player data
+                const playerData = {};
+                for (const game of games) {
+                    if (!game.players) continue;
+                    for (const [pid, info] of Object.entries(game.players)) {
+                        const rawName = (info.names && info.names[0]) || 'Unknown';
+                        const name = resolveName(rawName);
+                        if (!playerData[name]) playerData[name] = [];
+                        const existing = playerData[name].find(e => e.gameId === game.gameId);
+                        if (existing) {
+                            existing.net += info.net;
+                        } else {
+                            const gameDate = (!game.date || game.date === 'unknown') ? 'undated' : game.date;
+                            playerData[name].push({ date: gameDate, gameId: game.gameId, net: info.net });
+                        }
                     }
                 }
-            }
 
-            // Unique dates — put 'unknown'/empty dates at the start as "Undated"
-            const rawDates = [...new Set(games.map(g => g.date || 'unknown'))].sort();
-            const allDates = rawDates.filter(d => d && d !== 'unknown');
-            const hasUndated = rawDates.includes('unknown') || rawDates.includes('');
-            if (hasUndated) allDates.unshift('undated');
+                // Unique dates
+                const rawDates = [...new Set(games.map(g => g.date || 'unknown'))].sort();
+                const allDates = rawDates.filter(d => d && d !== 'unknown');
+                const hasUndated = rawDates.includes('unknown') || rawDates.includes('');
+                if (hasUndated) allDates.unshift('undated');
 
-            // Chart colors
-            const colors = [
-                '#4a6fa5', '#4ade80', '#f87171', '#fbbf24', '#a78bfa',
-                '#f472b6', '#34d399', '#fb923c', '#60a5fa', '#e879f9',
-                '#22d3ee', '#facc15', '#ef4444', '#14b8a6', '#8b5cf6'
-            ];
+                // Compute date span for annualization
+                const validDates = allDates.filter(d => d !== 'undated');
+                const firstDate = validDates.length > 0 ? new Date(validDates[0]) : new Date();
+                const lastDate = validDates.length > 0 ? new Date(validDates[validDates.length - 1]) : new Date();
+                const totalDays = Math.max((lastDate - firstDate) / (1000 * 60 * 60 * 24), 1);
 
-            // Build cumulative datasets
-            const datasets = [];
-            let colorIdx = 0;
+                // Build performance rows
+                const rows = [];
+                for (const [name, results] of Object.entries(playerData)) {
+                    const totalPnL = results.reduce((s, r) => s + r.net, 0);
+                    const gameCount = results.length;
+                    const avgPnL = Math.round(totalPnL / gameCount);
+                    const best = Math.max(...results.map(r => r.net));
+                    const worst = Math.min(...results.map(r => r.net));
+                    const mean = totalPnL / gameCount;
+                    const variance = gameCount > 1
+                        ? results.reduce((s, r) => s + Math.pow(r.net - mean, 2), 0) / (gameCount - 1)
+                        : 0;
+                    const stdPerGame = Math.round(Math.sqrt(variance));
+                    const gamesPerYear = gameCount / totalDays * 365;
+                    const annualMean = Math.round(mean * gamesPerYear);
+                    const annualStd = Math.round(Math.sqrt(variance * gamesPerYear));
+                    const annualLo = annualMean - 2 * annualStd;
+                    const annualHi = annualMean + 2 * annualStd;
+                    rows.push({ name, gameCount, totalPnL, avgPnL, best, worst, stdPerGame, annualRange: annualMean, annualLo, annualHi, annualStd });
+                }
 
-            // Sort players alphabetically for legend order
-            const sortedPlayers = Object.entries(playerData).sort((a, b) =>
-                a[0].localeCompare(b[0])
-            );
-
-            for (const [name, results] of sortedPlayers) {
-                let cumulative = 0;
-                const data = allDates.map(date => {
-                    const entries = results.filter(r => r.date === date);
-                    for (const e of entries) cumulative += e.net;
-                    return cumulative;
+                rows.sort((a, b) => {
+                    let cmp;
+                    if (perfSortKey === 'name') cmp = a.name.localeCompare(b.name);
+                    else cmp = a[perfSortKey] - b[perfSortKey];
+                    return perfSortAsc ? cmp : -cmp;
                 });
 
-                datasets.push({
-                    label: name,
-                    data,
-                    borderColor: colors[colorIdx % colors.length],
-                    backgroundColor: 'transparent',
-                    tension: 0.2,
-                    pointRadius: 3,
-                    pointHoverRadius: 6,
-                    borderWidth: 2
+                // Update sort arrows
+                document.querySelectorAll('.performance-table th[data-sort]').forEach(th => {
+                    const arrow = th.querySelector('.sort-arrow');
+                    if (arrow) arrow.remove();
+                    if (th.dataset.sort === perfSortKey) {
+                        th.insertAdjacentHTML('beforeend',
+                            `<span class="sort-arrow">${perfSortAsc ? '▲' : '▼'}</span>`);
+                    }
                 });
-                colorIdx++;
-            }
 
-            // Render chart
-            const ctx = document.getElementById('pnlChart').getContext('2d');
-            if (pnlChart) pnlChart.destroy();
+                // Render table rows
+                const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
+                performanceBody.innerHTML = rows.map(row => {
+                    const fmtColored = v => `<span class="${cls(v)}">${v >= 0 ? '+' : '-'}$${formatAmount(v)}</span>`;
+                    const fmtRange = `${fmtColored(row.annualLo)} to ${fmtColored(row.annualHi)}`;
+                    return `<tr>
+                        <td style="font-weight:600">${escapeHtml(row.name)}</td>
+                        <td>${row.gameCount}</td>
+                        <td class="${cls(row.totalPnL)}">${formatSigned(row.totalPnL)}</td>
+                        <td class="${cls(row.avgPnL)}">${formatSigned(row.avgPnL)}</td>
+                        <td class="${cls(row.best)}">${formatSigned(row.best)}</td>
+                        <td class="${cls(row.worst)}">${formatSigned(row.worst)}</td>
+                        <td style="color:#aaa">$${formatAmount(row.stdPerGame)}</td>
+                        <td style="white-space:nowrap">${fmtRange}</td>
+                    </tr>`;
+                }).join('');
 
-            // Format dates for display (e.g., "Jan 15" or "Jan 15 '26")
-            const formatDateLabel = d => {
-                if (d === 'undated') return 'Undated';
-                const dt = new Date(d + 'T00:00:00');
-                if (isNaN(dt)) return d;
-                const mon = dt.toLocaleString('en-US', { month: 'short' });
-                const day = dt.getDate();
-                return `${mon} ${day}`;
-            };
-            const formattedDates = allDates.map(formatDateLabel);
+                // === NOW RENDER CHART ===
+                const colors = [
+                    '#4a6fa5', '#4ade80', '#f87171', '#fbbf24', '#a78bfa',
+                    '#f472b6', '#34d399', '#fb923c', '#60a5fa', '#e879f9',
+                    '#22d3ee', '#facc15', '#ef4444', '#14b8a6', '#8b5cf6'
+                ];
+                const datasets = [];
+                let colorIdx = 0;
+                const sortedPlayers = Object.entries(playerData).sort((a, b) => a[0].localeCompare(b[0]));
 
-            // Store full data for range slider
-            window._chartAllDates = allDates;
-            window._chartFormattedDates = formattedDates;
-            window._chartDatasets = datasets;
+                for (const [name, results] of sortedPlayers) {
+                    let cumulative = 0;
+                    const data = allDates.map(date => {
+                        const entries = results.filter(r => r.date === date);
+                        for (const e of entries) cumulative += e.net;
+                        return cumulative;
+                    });
+                    datasets.push({
+                        label: name, data,
+                        borderColor: colors[colorIdx % colors.length],
+                        backgroundColor: 'transparent',
+                        tension: 0.2, pointRadius: 3, pointHoverRadius: 6, borderWidth: 2
+                    });
+                    colorIdx++;
+                }
 
-            // Setup range sliders
-            const rangeMin = document.getElementById('chartRangeMin');
-            const rangeMax = document.getElementById('chartRangeMax');
-            rangeMin.max = allDates.length - 1;
-            rangeMax.max = allDates.length - 1;
-            rangeMin.value = 0;
-            rangeMax.value = allDates.length - 1;
+                const ctx = document.getElementById('pnlChart').getContext('2d');
+                if (pnlChart) pnlChart.destroy();
 
-            function updateChartRange() {
-                const lo = parseInt(rangeMin.value);
-                const hi = parseInt(rangeMax.value);
-                if (lo >= hi) return;
-                const slicedLabels = formattedDates.slice(lo, hi + 1);
-                const slicedDatasets = datasets.map(ds => ({
-                    ...ds,
-                    data: ds.data.slice(lo, hi + 1),
-                }));
-                pnlChart.data.labels = slicedLabels;
-                pnlChart.data.datasets.forEach((ds, i) => {
-                    ds.data = slicedDatasets[i].data;
-                });
-                pnlChart.update('none');
-                document.getElementById('chartRangeLabel').textContent =
-                    `${allDates[lo]} to ${allDates[hi]}`;
-            }
+                const formatDateLabel = d => {
+                    if (d === 'undated') return 'Undated';
+                    const dt = new Date(d + 'T00:00:00');
+                    if (isNaN(dt)) return d;
+                    return `${dt.toLocaleString('en-US', { month: 'short' })} ${dt.getDate()}`;
+                };
+                const formattedDates = allDates.map(formatDateLabel);
 
-            rangeMin.addEventListener('input', updateChartRange);
-            rangeMax.addEventListener('input', updateChartRange);
+                window._chartAllDates = allDates;
+                window._chartFormattedDates = formattedDates;
+                window._chartDatasets = datasets;
 
-            pnlChart = new Chart(ctx, {
-                type: 'line',
-                data: { labels: formattedDates, datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
-                    },
-                    scales: {
-                        x: {
-                            ticks: { color: '#888', maxRotation: 45 },
-                            grid: { color: '#2a3a5a' }
+                const rangeMin = document.getElementById('chartRangeMin');
+                const rangeMax = document.getElementById('chartRangeMax');
+                rangeMin.max = allDates.length - 1;
+                rangeMax.max = allDates.length - 1;
+                rangeMin.value = 0;
+                rangeMax.value = allDates.length - 1;
+
+                function updateChartRange() {
+                    const lo = parseInt(rangeMin.value);
+                    const hi = parseInt(rangeMax.value);
+                    if (lo >= hi) return;
+                    pnlChart.data.labels = formattedDates.slice(lo, hi + 1);
+                    pnlChart.data.datasets.forEach((ds, i) => {
+                        ds.data = datasets[i].data.slice(lo, hi + 1);
+                    });
+                    pnlChart.update('none');
+                    document.getElementById('chartRangeLabel').textContent =
+                        `${allDates[lo]} to ${allDates[hi]}`;
+                }
+                rangeMin.addEventListener('input', updateChartRange);
+                rangeMax.addEventListener('input', updateChartRange);
+
+                pnlChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: formattedDates, datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            x: { ticks: { color: '#888', maxRotation: 45 }, grid: { color: '#2a3a5a' } },
+                            y: {
+                                ticks: { color: '#888', callback: v => (v >= 0 ? '+' : '') + v.toLocaleString() },
+                                grid: { color: '#2a3a5a' }
+                            }
                         },
-                        y: {
-                            ticks: {
-                                color: '#888',
-                                callback: v => (v >= 0 ? '+' : '') + v.toLocaleString()
-                            },
-                            grid: { color: '#2a3a5a' }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            labels: { color: '#ccc', usePointStyle: true, pointStyle: 'circle' }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: ctx => {
-                                    const val = ctx.raw;
-                                    const sign = val >= 0 ? '+' : '';
-                                    return ` ${ctx.dataset.label}: ${sign}${val.toLocaleString()}`;
+                        plugins: {
+                            legend: { labels: { color: '#ccc', usePointStyle: true, pointStyle: 'circle' } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const val = context.raw;
+                                        const sign = val >= 0 ? '+' : '';
+                                        return ` ${context.dataset.label}: ${sign}${val.toLocaleString()}`;
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
-            const rangeStart = validDates.length > 0 ? validDates[0] : 'Undated';
-            const rangeEnd = validDates.length > 0 ? validDates[validDates.length - 1] : 'Undated';
-            document.getElementById('chartRangeLabel').textContent =
-                `${rangeStart} to ${rangeEnd}`;
+                });
 
-            // Compute overall date span for annualization (using only valid dates)
-            const validDates = allDates.filter(d => d !== 'undated');
-            const firstDate = validDates.length > 0 ? new Date(validDates[0]) : new Date();
-            const lastDate = validDates.length > 0 ? new Date(validDates[validDates.length - 1]) : new Date();
-            const totalDays = Math.max((lastDate - firstDate) / (1000 * 60 * 60 * 24), 1);
+                const rangeStart = validDates.length > 0 ? validDates[0] : 'Undated';
+                const rangeEnd = validDates.length > 0 ? validDates[validDates.length - 1] : 'Undated';
+                document.getElementById('chartRangeLabel').textContent =
+                    `${rangeStart} to ${rangeEnd}`;
 
-            // Render performance table
-            const rows = [];
-            for (const [name, results] of Object.entries(playerData)) {
-                const totalPnL = results.reduce((s, r) => s + r.net, 0);
-                const gameCount = results.length;
-                const avgPnL = Math.round(totalPnL / gameCount);
-                const best = Math.max(...results.map(r => r.net));
-                const worst = Math.min(...results.map(r => r.net));
-                const mean = totalPnL / gameCount;
-                const variance = gameCount > 1
-                    ? results.reduce((s, r) => s + Math.pow(r.net - mean, 2), 0) / (gameCount - 1)
-                    : 0;
-                const stdPerGame = Math.round(Math.sqrt(variance));
+                // Render hand highlights and player stats
+                loadHandHighlights();
+                loadPlayerStats();
 
-                // Annualize: estimate games/year from this player's frequency
-                const gamesPerYear = gameCount / totalDays * 365;
-                const annualMean = Math.round(mean * gamesPerYear);
-                const annualStd = Math.round(Math.sqrt(variance * gamesPerYear));
-                const annualLo = annualMean - 2 * annualStd;
-                const annualHi = annualMean + 2 * annualStd;
-
-                rows.push({ name, gameCount, totalPnL, avgPnL, best, worst, stdPerGame, annualRange: annualMean, annualLo, annualHi, annualStd });
+            } catch (renderErr) {
+                performanceBody.innerHTML = `<tr><td colspan="8" style="color:red;padding:20px;">RENDER ERROR: ${renderErr.message}<br><pre style="font-size:11px;margin-top:8px;color:#f88">${renderErr.stack}</pre></td></tr>`;
+                console.error('renderHistory error:', renderErr);
             }
-
-            rows.sort((a, b) => {
-                let cmp;
-                if (perfSortKey === 'name') {
-                    cmp = a.name.localeCompare(b.name);
-                } else {
-                    cmp = a[perfSortKey] - b[perfSortKey];
-                }
-                return perfSortAsc ? cmp : -cmp;
-            });
-
-            // Update sort arrows in header
-            document.querySelectorAll('.performance-table th').forEach(th => {
-                const arrow = th.querySelector('.sort-arrow');
-                if (arrow) arrow.remove();
-                if (th.dataset.sort === perfSortKey) {
-                    th.insertAdjacentHTML('beforeend',
-                        `<span class="sort-arrow">${perfSortAsc ? '▲' : '▼'}</span>`);
-                }
-            });
-
-            performanceBody.innerHTML = rows.map(row => {
-                const cls = v => v > 0 ? 'positive' : v < 0 ? 'negative' : 'zero';
-                const fmtColored = v => `<span class="${cls(v)}">${v >= 0 ? '+' : '-'}$${formatAmount(v)}</span>`;
-                const fmtRange = `${fmtColored(row.annualLo)} to ${fmtColored(row.annualHi)}`;
-                return `<tr>
-                    <td style="font-weight:600">${escapeHtml(row.name)}</td>
-                    <td>${row.gameCount}</td>
-                    <td class="${cls(row.totalPnL)}">${formatSigned(row.totalPnL)}</td>
-                    <td class="${cls(row.avgPnL)}">${formatSigned(row.avgPnL)}</td>
-                    <td class="${cls(row.best)}">${formatSigned(row.best)}</td>
-                    <td class="${cls(row.worst)}">${formatSigned(row.worst)}</td>
-                    <td style="color:#aaa">$${formatAmount(row.stdPerGame)}</td>
-                    <td style="white-space:nowrap">${fmtRange}</td>
-                </tr>`;
-            }).join('');
-
-            // Render hand highlights and player stats
-            loadHandHighlights();
-            loadPlayerStats();
         }
 
         function loadHandHighlights() {
