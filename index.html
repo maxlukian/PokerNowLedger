@@ -1063,10 +1063,10 @@
                 allHistoricalGames = snapshot.docs.map(doc => doc.data());
                 historyLoaded = true;
 
-                // Load playerStats in background (don't block rendering)
+                // Load playerStats from subcollection (prefer over game-doc data)
                 const withLogs = snapshot.docs
                     .map((docSnap, idx) => ({ docSnap, idx, data: allHistoricalGames[idx] }))
-                    .filter(({ data }) => data.logFetched && !data.playerStats);
+                    .filter(({ data }) => data.logFetched);
 
                 if (withLogs.length > 0) {
                     Promise.all(withLogs.map(async ({ docSnap, idx }) => {
@@ -1916,8 +1916,12 @@
 
                 // Aggregate overall
                 for (const [player, stats] of Object.entries(overallStats)) {
-                    // Stats keys look like: ' (1319) | #2 "Adi' — extract the name after last "
-                    const cleanName = player.includes('"') ? player.split('"').pop().trim() || player : player;
+                    // Stats keys may be clean names ("Dan") or dirty keys (' (1319) | #2 "Adi')
+                    let cleanName = player;
+                    if (player.includes('"')) {
+                        // Extract name after last " and strip any trailing '
+                        cleanName = player.split('"').pop().replace(/'/g, '').trim() || player;
+                    }
                     _mergeIntoAgg(vpipByType.all, resolveName(cleanName), stats);
                 }
 
@@ -1927,7 +1931,10 @@
                     for (const [gt, players] of Object.entries(byTypeStats)) {
                         if (!vpipByType[gt]) vpipByType[gt] = {};
                         for (const [player, stats] of Object.entries(players)) {
-                            const cleanName = player.includes('"') ? player.split('"').pop().trim() || player : player;
+                            let cleanName = player;
+                            if (player.includes('"')) {
+                                cleanName = player.split('"').pop().replace(/'/g, '').trim() || player;
+                            }
                             _mergeIntoAgg(vpipByType[gt], resolveName(cleanName), stats);
                         }
                     }
