@@ -1916,7 +1916,9 @@
 
                 // Aggregate overall
                 for (const [player, stats] of Object.entries(overallStats)) {
-                    _mergeIntoAgg(vpipByType.all, resolveName(player), stats);
+                    // Stats keys look like: ' (1319) | #2 "Adi' — extract the name after last "
+                    const cleanName = player.includes('"') ? player.split('"').pop().trim() || player : player;
+                    _mergeIntoAgg(vpipByType.all, resolveName(cleanName), stats);
                 }
 
                 // Aggregate by game type
@@ -1925,7 +1927,8 @@
                     for (const [gt, players] of Object.entries(byTypeStats)) {
                         if (!vpipByType[gt]) vpipByType[gt] = {};
                         for (const [player, stats] of Object.entries(players)) {
-                            _mergeIntoAgg(vpipByType[gt], resolveName(player), stats);
+                            const cleanName = player.includes('"') ? player.split('"').pop().trim() || player : player;
+                            _mergeIntoAgg(vpipByType[gt], resolveName(cleanName), stats);
                         }
                     }
                 }
