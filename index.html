@@ -888,8 +888,7 @@
                         <thead>
                             <tr>
                                 <th data-vsort="name">Player</th>
-                                <th data-vsort="handsDealt">Hands <span class="sort-arrow">▼</span></th>
-                                <th data-vsort="vpip">VPIP %</th>
+                                <th data-vsort="vpip">VPIP % <span class="sort-arrow">▼</span></th>
                                 <th data-vsort="fold">Fold %</th>
                                 <th data-vsort="flop">Saw Flop %</th>
                                 <th data-vsort="turn">Saw Turn %</th>
@@ -2312,7 +2311,7 @@
         }
 
 
-        let vpipSortKey = 'handsDealt';
+        let vpipSortKey = 'vpip';
         let vpipSortAsc = false;
         let vpipRows = [];
 
@@ -2353,7 +2352,6 @@
             const vpipBar = (val) => `<span class="vpip-bar" style="width:${Math.max(val, 2)}px"></span>${val}%`;
             document.getElementById('vpipBody').innerHTML = sorted.map(row => `<tr>
                 <td style="font-weight:600">${escapeHtml(row.name)}</td>
-                <td>${row.handsDealt}</td>
                 <td>${vpipBar(row.vpip)}</td>
                 <td>${vpipBar(row.fold)}</td>
                 <td>${vpipBar(row.flop)}</td>
