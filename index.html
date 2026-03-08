@@ -1168,16 +1168,19 @@
                     const data = await response.json();
                     games.push({ gameId, data, date });
 
-                    // Save to Firestore in the background
-                    saveGameToFirestore(gameId, data, date).catch(err => {
-                        console.error('Failed to save to Firestore:', err);
+                    // Save to Firestore
+                    await saveGameToFirestore(gameId, data, date);
+
+                    // Fetch and parse game log in the background
+                    fetchAndParseLog(gameId).then(() => loadHistoricalGames()).catch(err => {
+                        console.log(`Log fetch for ${gameId}: ${err.message || 'no log available'}`);
                     });
                 }
 
                 gameLink.value = '';
                 updateDisplay();
 
-                // Reload history so new games appear on History tab
+                // Reload history so new games appear on History tab immediately
                 loadHistoricalGames();
             } catch (err) {
                 showError(`Error: ${err.message}`);
@@ -1185,6 +1188,264 @@
                 fetchBtn.disabled = false;
                 fetchBtn.textContent = 'Add';
             }
+        }
+
+        // ── Log fetching & parsing (client-side) ──
+
+        async function fetchAndParseLog(gameId) {
+            // Fetch all log pages via proxy
+            const allLogs = [];
+            let cursor = null;
+            while (true) {
+                let url = `/api/log?gameId=${gameId}`;
+                if (cursor) url += `&before_at=${encodeURIComponent(cursor)}`;
+                const resp = await fetch(url);
+                if (!resp.ok) break;
+                const data = await resp.json();
+                const logs = data.logs || [];
+                if (logs.length === 0) break;
+                allLogs.push(...logs);
+                cursor = logs[logs.length - 1].created_at;
+                if (logs.length < 50) break;
+            }
+            if (allLogs.length === 0) return null;
+
+            const hands = _parseHands(allLogs);
+            const handCount = Object.keys(hands).length;
+            const parsed = {
+                biggestPots: _extractBiggestPots(hands),
+                badBeats: _extractBadBeats(hands),
+                allInShowdowns: _extractAllInShowdowns(hands),
+                playerStats: _extractPlayerStats(hands),
+            };
+
+            // Store to Firestore
+            const gameRef = db.collection('games').doc(gameId);
+
+            // playerStats → subcollection
+            const ps = parsed.playerStats;
+            if (ps.overall) {
+                await gameRef.collection('parsed_data').doc('playerStats').set({ players: ps.overall });
+                for (const [gt, players] of Object.entries(ps.byType || {})) {
+                    await gameRef.collection('parsed_data').doc(`playerStats_${gt}`).set({ players });
+                }
+            }
+
+            // highlights → game doc
+            await gameRef.update({
+                logFetched: true,
+                logEntryCount: allLogs.length,
+                handCount,
+                biggestPots: parsed.biggestPots,
+                badBeats: parsed.badBeats,
+                allInShowdowns: parsed.allInShowdowns,
+            });
+
+            console.log(`Log for ${gameId}: ${allLogs.length} entries, ${handCount} hands`);
+            return parsed;
+        }
+
+        const HAND_RANKS = {
+            'Royal Flush': 10, 'Straight Flush': 9, 'Four of a Kind': 8,
+            'Full House': 7, 'Flush': 6, 'Straight': 5, 'Three of a Kind': 4,
+            'Two Pair': 3, 'Pair': 2, 'High Card': 1,
+        };
+
+        function _parseHands(logs) {
+            const hands = {};
+            let curId = null;
+            // Logs come newest-first, reverse for chronological
+            for (let i = logs.length - 1; i >= 0; i--) {
+                const msg = logs[i].msg;
+                const at = logs[i].at || '';
+
+                const hs = msg.match(/-- starting hand #(\d+) \(id: (\w+)\)\s+(.*?)(?:\s*\(dealer:.*)?--/);
+                if (hs) {
+                    curId = hs[2];
+                    hands[curId] = {
+                        hand_num: +hs[1], game_type: hs[3].trim(), at,
+                        entries: [], pots: [], shown_hands: [], all_ins: [],
+                        winners: new Set(), community_cards: '',
+                        street: 'preflop', players_in_hand: new Set(),
+                        player_actions: {},
+                    };
+                }
+                if (!curId || !hands[curId]) continue;
+                const hand = hands[curId];
+
+                if (msg.includes('Player stacks:')) {
+                    for (const m of msg.matchAll(/"(.+?) @/g)) {
+                        const p = m[1];
+                        hand.players_in_hand.add(p);
+                        if (!hand.player_actions[p]) hand.player_actions[p] = {preflop:[],flop:[],turn:[],river:[]};
+                    }
+                }
+
+                if (msg.startsWith('Flop:')) hand.street = 'flop';
+                else if (msg.startsWith('Turn:')) hand.street = 'turn';
+                else if (msg.startsWith('River:')) {
+                    hand.street = 'river';
+                    const rm = msg.match(/River: (.+)/);
+                    if (rm) hand.community_cards = rm[1];
+                }
+
+                const am = msg.match(/"(.+?) @.+?" (bets|calls|raises|checks|folds)(.*)/);
+                if (am) {
+                    const p = am[1];
+                    if (!hand.player_actions[p]) hand.player_actions[p] = {preflop:[],flop:[],turn:[],river:[]};
+                    hand.player_actions[p][hand.street].push(am[2]);
+                }
+
+                const bm = msg.match(/"(.+?) @.+?" posts a (small|big) blind/);
+                if (bm) {
+                    const p = bm[1];
+                    if (!hand.player_actions[p]) hand.player_actions[p] = {preflop:[],flop:[],turn:[],river:[]};
+                    hand.player_actions[p].preflop.push('post_' + bm[2]);
+                }
+
+                const pm = msg.match(/"(.+?) @.+?" collected (\d+) from pot(.*)/);
+                if (pm) {
+                    const detail = pm[3].trim();
+                    let handName = '', handRank = 0;
+                    if (detail.startsWith('with ')) {
+                        const clean = detail.replace(/^with (hi hand with |low hand with )?/, '');
+                        handName = clean.split(' (combination')[0];
+                        for (const [rn, rv] of Object.entries(HAND_RANKS)) {
+                            if (handName.toLowerCase().includes(rn.toLowerCase())) { handRank = rv; break; }
+                        }
+                    }
+                    hand.pots.push({ player: pm[1], amount: +pm[2], detail, handName, handRank });
+                    hand.winners.add(pm[1]);
+                }
+
+                const sm = msg.match(/"(.+?) @.+?" shows a (.+?)\./);
+                if (sm) hand.shown_hands.push({ player: sm[1], cards: sm[2] });
+
+                const aim = msg.match(/"(.+?) @.+?" (calls|raises|bets) (\d+) and go all in/);
+                if (aim) hand.all_ins.push({ player: aim[1], action: aim[2], amount: +aim[3] });
+            }
+            return hands;
+        }
+
+        function _extractBiggestPots(hands, limit = 10) {
+            const list = [];
+            for (const [id, h] of Object.entries(hands)) {
+                const total = h.pots.reduce((s, p) => s + p.amount, 0);
+                if (total > 0) list.push({
+                    handId: id, handNum: h.hand_num, totalPot: total, at: h.at,
+                    winners: h.pots.map(p => ({ player: p.player, amount: p.amount, detail: p.detail, handName: p.handName })),
+                });
+            }
+            list.sort((a, b) => b.totalPot - a.totalPot);
+            return list.slice(0, limit);
+        }
+
+        function _extractBadBeats(hands, limit = 10) {
+            const beats = [];
+            for (const [id, h] of Object.entries(hands)) {
+                if (!h.shown_hands.length || !h.pots.length) continue;
+                const total = h.pots.reduce((s, p) => s + p.amount, 0);
+                const winRank = Math.max(...h.pots.map(p => p.handRank));
+                if (total < 200 || winRank < 2) continue;
+                const wi = h.pots[0];
+                for (const sh of h.shown_hands) {
+                    if (!h.winners.has(sh.player)) {
+                        beats.push({
+                            handId: id, handNum: h.hand_num, at: h.at, totalPot: total,
+                            loser: sh.player, loserCards: sh.cards,
+                            winner: wi.player, winnerHand: wi.handName || '',
+                            winnerDetail: wi.detail || '', communityCards: h.community_cards || '',
+                        });
+                    }
+                }
+            }
+            beats.sort((a, b) => b.totalPot - a.totalPot);
+            return beats.slice(0, limit);
+        }
+
+        function _extractAllInShowdowns(hands, limit = 10) {
+            const list = [];
+            for (const [id, h] of Object.entries(hands)) {
+                if (h.all_ins.length < 2 && !(h.all_ins.length && h.shown_hands.length >= 2)) continue;
+                const total = h.pots.reduce((s, p) => s + p.amount, 0);
+                if (!total) continue;
+                list.push({
+                    handId: id, handNum: h.hand_num, at: h.at, totalPot: total,
+                    allIns: h.all_ins.map(a => ({ player: a.player, amount: a.amount })),
+                    winners: h.pots.map(p => ({ player: p.player, amount: p.amount, handName: p.handName })),
+                    shownHands: h.shown_hands.map(s => ({ player: s.player, cards: s.cards })),
+                    communityCards: h.community_cards || '',
+                });
+            }
+            list.sort((a, b) => b.totalPot - a.totalPot);
+            return list.slice(0, limit);
+        }
+
+        function _categorizeHand(name) {
+            const n = name.toLowerCase();
+            if (n.includes('royal flush')) return 'Royal Flush';
+            if (n.includes('straight flush')) return 'Straight Flush';
+            if (n.includes('four of a kind')) return 'Four of a Kind';
+            if (n.includes('full house')) return 'Full House';
+            if (n.includes('flush')) return 'Flush';
+            if (n.includes('straight')) return 'Straight';
+            if (n.includes('three of a kind')) return 'Three of a Kind';
+            if (n.includes('two pair')) return 'Two Pair';
+            if (n.includes('pair')) return 'Pair';
+            if (n.includes('high card') || n.includes('high')) return 'High Card';
+            return 'Unknown/No Showdown';
+        }
+
+        function _normalizeGameType(gt) {
+            const g = (gt || '').toLowerCase();
+            if (g.includes('omaha') && (g.includes('hi/lo') || g.includes('8 or better') || g.includes('hi-lo'))) return 'PLO8';
+            if (g.includes('omaha')) return 'PLO';
+            return 'NLH';
+        }
+
+        function _extractPlayerStats(hands) {
+            const overall = {}, byType = {};
+            const empty = () => ({ handsDealt:0, vpipHands:0, sawFlop:0, sawTurn:0, sawRiver:0, wentToShowdown:0, handTypes:{} });
+            const accum = (s, hand, player, actions) => {
+                s.handsDealt++;
+                if (actions.preflop.some(a => ['calls','raises','bets'].includes(a))) s.vpipHands++;
+                if (actions.flop && actions.flop.length) s.sawFlop++;
+                if (actions.turn && actions.turn.length) s.sawTurn++;
+                if (actions.river && actions.river.length) s.sawRiver++;
+                if (hand.shown_hands.some(sh => sh.player === player)) s.wentToShowdown++;
+            };
+            const toDict = (s) => {
+                const hd = Math.max(s.handsDealt, 1);
+                return { ...s, vpipPct: Math.round(1000*s.vpipHands/hd)/10, sawFlopPct: Math.round(1000*s.sawFlop/hd)/10,
+                    sawTurnPct: Math.round(1000*s.sawTurn/hd)/10, sawRiverPct: Math.round(1000*s.sawRiver/hd)/10,
+                    showdownPct: Math.round(1000*s.wentToShowdown/hd)/10 };
+            };
+
+            for (const [hid, hand] of Object.entries(hands)) {
+                const gt = _normalizeGameType(hand.game_type);
+                for (const [player, actions] of Object.entries(hand.player_actions)) {
+                    if (player.includes('|') && player.includes('#')) continue;
+                    if (!overall[player]) overall[player] = empty();
+                    accum(overall[player], hand, player, actions);
+                    if (!byType[gt]) byType[gt] = {};
+                    if (!byType[gt][player]) byType[gt][player] = empty();
+                    accum(byType[gt][player], hand, player, actions);
+                }
+                for (const pot of hand.pots) {
+                    const cat = _categorizeHand(pot.handName || 'Unknown/No Showdown');
+                    for (const tgt of [overall, byType[_normalizeGameType(hand.game_type)] || {}]) {
+                        if (tgt[pot.player]) tgt[pot.player].handTypes[cat] = (tgt[pot.player].handTypes[cat] || 0) + 1;
+                    }
+                }
+            }
+
+            const result = {}, bt = {};
+            for (const [p, s] of Object.entries(overall)) result[p] = toDict(s);
+            for (const [gt, players] of Object.entries(byType)) {
+                bt[gt] = {};
+                for (const [p, s] of Object.entries(players)) bt[gt][p] = toDict(s);
+            }
+            return { overall: result, byType: bt };
         }
 
         function deleteGame(gameId) {
