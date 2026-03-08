@@ -1312,13 +1312,20 @@
             return m ? m[1] : null;
         }
 
+        function _extractDateFromLogs(logs) {
+            // Find the earliest timestamp in the logs to determine the game date
+            let earliest = null;
+            for (const log of logs) {
+                if (log.at && log.at.length >= 10) {
+                    const d = log.at.slice(0, 10); // "2026-03-04"
+                    if (!earliest || d < earliest) earliest = d;
+                }
+            }
+            return earliest;
+        }
+
         async function handleCSVUpload(files) {
             const statusEl = document.getElementById('csvStatus');
-            const date = document.getElementById('gameDate').value;
-            if (!date) {
-                statusEl.innerHTML = '<span class="error">Please select a date first.</span>';
-                return;
-            }
 
             let processed = 0, failed = 0;
             for (const file of files) {
@@ -1338,7 +1345,10 @@
                     }
                     if (!gameId) throw new Error('Could not determine game ID from CSV');
 
-                    console.log(`CSV ${file.name}: ${logs.length} entries, gameId=${gameId}`);
+                    // Auto-detect date from CSV timestamps (earliest entry)
+                    const date = _extractDateFromLogs(logs) || document.getElementById('gameDate').value || 'unknown';
+
+                    console.log(`CSV ${file.name}: ${logs.length} entries, gameId=${gameId}, date=${date}`);
 
                     // Parse hands using existing parser (logs are already newest-first in CSV, same as API)
                     const hands = _parseHands(logs);
@@ -1370,6 +1380,9 @@
                             await gameRef.set({ gameId, date, addedAt: firebase.firestore.FieldValue.serverTimestamp(), players: {} });
                         }
                     }
+
+                    // Always update the date from CSV timestamps
+                    await gameRef.update({ date });
 
                     // Save parsed data (same as fetchAndParseLog)
                     const ps = parsed.playerStats;
