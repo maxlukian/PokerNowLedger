@@ -1584,6 +1584,15 @@
                 const games = allHistoricalGames.slice()
                     .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
+                // Debug banner — remove after investigation
+                const _wp = games.filter(g => g.players).length;
+                const _dates = games.map(g => g.date).filter(Boolean).sort();
+                const _dbg = `${games.length} games loaded, ${_wp} with players, latest: ${_dates[_dates.length-1] || 'none'}`;
+                console.log('renderHistory:', _dbg);
+                performanceBody.insertAdjacentHTML('beforebegin', `<div id="debugBanner" style="color:#fbbf24;font-size:0.75rem;text-align:center;padding:4px;">${_dbg}</div>`);
+                const _oldBanner = document.querySelectorAll('#debugBanner');
+                if (_oldBanner.length > 1) _oldBanner[0].remove();
+
                 if (games.length === 0) {
                     performanceBody.innerHTML = '<tr><td colspan="8" style="color:#888;text-align:center;padding:20px;">No games recorded yet.</td></tr>';
                     if (pnlChart) { pnlChart.destroy(); pnlChart = null; }
