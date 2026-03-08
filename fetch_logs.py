@@ -31,14 +31,15 @@ from firebase_admin import credentials, firestore
 os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS",
                        os.path.join(os.path.dirname(__file__), "firebase-service-key.json"))
 cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-firebase_admin.initialize_app(cred)
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 CHUNK_SIZE = 500
 POKERNOW_BASE = "https://www.pokernow.com/games"
-REQUEST_DELAY = 2       # seconds between pages
-RETRY_DELAY = 5         # seconds after rate limit
-MAX_RETRIES = 3
+REQUEST_DELAY = 3       # seconds between pages
+RETRY_DELAY = 8         # seconds after rate limit
+MAX_RETRIES = 5
 
 
 def fetch_game_log(game_id):
@@ -311,48 +312,92 @@ def extract_all_in_showdowns(hands, limit=10):
     return showdowns[:limit]
 
 
+def normalize_game_type(game_type):
+    """Normalize game type string to a short label."""
+    gt = (game_type or "").lower()
+    if "omaha" in gt and ("hi/lo" in gt or "8 or better" in gt or "hi-lo" in gt):
+        return "PLO8"
+    elif "omaha" in gt:
+        return "PLO"
+    elif "hold" in gt or "no limit" in gt or not gt:
+        return "NLH"
+    return "NLH"  # default
+
+
+def _empty_stats():
+    return {
+        "handsDealt": 0, "vpipHands": 0,
+        "sawFlop": 0, "sawTurn": 0, "sawRiver": 0,
+        "wentToShowdown": 0, "handTypes": {},
+    }
+
+
+def _accumulate_stats(stats, hand, player, actions):
+    """Accumulate one hand's stats into the stats dict."""
+    stats["handsDealt"] += 1
+
+    preflop_actions = actions.get("preflop", [])
+    voluntary_preflop = [a for a in preflop_actions
+                         if a in ("calls", "raises", "bets")]
+    if voluntary_preflop:
+        stats["vpipHands"] += 1
+
+    if actions.get("flop") and "folds" not in actions["flop"]:
+        stats["sawFlop"] += 1
+    elif actions.get("flop"):
+        stats["sawFlop"] += 1
+
+    if actions.get("turn"):
+        stats["sawTurn"] += 1
+
+    if actions.get("river"):
+        stats["sawRiver"] += 1
+
+    if any(s["player"] == player for s in hand["shown_hands"]):
+        stats["wentToShowdown"] += 1
+
+
+def _stats_to_dict(stats):
+    """Convert raw stats to serializable format with percentages."""
+    hd = max(stats["handsDealt"], 1)
+    return {
+        "handsDealt": stats["handsDealt"],
+        "vpipHands": stats["vpipHands"],
+        "vpipPct": round(100 * stats["vpipHands"] / hd, 1),
+        "sawFlop": stats["sawFlop"],
+        "sawFlopPct": round(100 * stats["sawFlop"] / hd, 1),
+        "sawTurn": stats["sawTurn"],
+        "sawTurnPct": round(100 * stats["sawTurn"] / hd, 1),
+        "sawRiver": stats["sawRiver"],
+        "sawRiverPct": round(100 * stats["sawRiver"] / hd, 1),
+        "wentToShowdown": stats["wentToShowdown"],
+        "showdownPct": round(100 * stats["wentToShowdown"] / hd, 1),
+        "handTypes": stats["handTypes"],
+    }
+
+
 def extract_player_stats(hands):
-    """Extract per-player VPIP (overall + by street) and hand type distribution."""
-    player_stats = {}  # player -> stats dict
+    """Extract per-player VPIP (overall + by game type + by street) and hand type distribution."""
+    # overall stats
+    player_stats = {}
+    # per game type: player_stats_by_type[game_type][player] = stats
+    player_stats_by_type = {}
 
     for hand_id, hand in hands.items():
+        gt = normalize_game_type(hand.get("game_type", ""))
+
         for player, actions in hand["player_actions"].items():
+            # Overall
             if player not in player_stats:
-                player_stats[player] = {
-                    "handsDealt": 0,
-                    "vpipHands": 0,
-                    "sawFlop": 0,
-                    "sawTurn": 0,
-                    "sawRiver": 0,
-                    "wentToShowdown": 0,
-                    "handTypes": {},
-                }
+                player_stats[player] = _empty_stats()
+            _accumulate_stats(player_stats[player], hand, player, actions)
 
-            stats = player_stats[player]
-            stats["handsDealt"] += 1
-
-            # VPIP: voluntarily put money in preflop (calls or raises, NOT forced blinds)
-            preflop_actions = actions.get("preflop", [])
-            voluntary_preflop = [a for a in preflop_actions
-                                 if a in ("calls", "raises", "bets")]
-            if voluntary_preflop:
-                stats["vpipHands"] += 1
-
-            # Street participation: did the player act on this street (not fold)?
-            if actions.get("flop") and "folds" not in actions["flop"]:
-                stats["sawFlop"] += 1
-            elif actions.get("flop"):
-                stats["sawFlop"] += 1  # they were there even if they folded on flop
-
-            if actions.get("turn"):
-                stats["sawTurn"] += 1
-
-            if actions.get("river"):
-                stats["sawRiver"] += 1
-
-            # Showdown: player showed cards
-            if any(s["player"] == player for s in hand["shown_hands"]):
-                stats["wentToShowdown"] += 1
+            # Per game type
+            if gt not in player_stats_by_type:
+                player_stats_by_type[gt] = {}
+            if player not in player_stats_by_type[gt]:
+                player_stats_by_type[gt][player] = _empty_stats()
+            _accumulate_stats(player_stats_by_type[gt][player], hand, player, actions)
 
         # Hand types won
         for pot in hand["pots"]:
@@ -360,34 +405,26 @@ def extract_player_stats(hands):
             hand_name = pot["handName"]
             if not hand_name:
                 hand_name = "Unknown/No Showdown"
-
-            # Normalize hand type to category
             category = categorize_hand(hand_name)
 
-            if player not in player_stats:
-                continue
-            ht = player_stats[player]["handTypes"]
-            ht[category] = ht.get(category, 0) + 1
+            for target in [player_stats, player_stats_by_type.get(gt, {})]:
+                if player in target:
+                    ht = target[player]["handTypes"]
+                    ht[category] = ht.get(category, 0) + 1
 
     # Convert to serializable format
     result = {}
     for player, stats in player_stats.items():
-        result[player] = {
-            "handsDealt": stats["handsDealt"],
-            "vpipHands": stats["vpipHands"],
-            "vpipPct": round(100 * stats["vpipHands"] / max(stats["handsDealt"], 1), 1),
-            "sawFlop": stats["sawFlop"],
-            "sawFlopPct": round(100 * stats["sawFlop"] / max(stats["handsDealt"], 1), 1),
-            "sawTurn": stats["sawTurn"],
-            "sawTurnPct": round(100 * stats["sawTurn"] / max(stats["handsDealt"], 1), 1),
-            "sawRiver": stats["sawRiver"],
-            "sawRiverPct": round(100 * stats["sawRiver"] / max(stats["handsDealt"], 1), 1),
-            "wentToShowdown": stats["wentToShowdown"],
-            "showdownPct": round(100 * stats["wentToShowdown"] / max(stats["handsDealt"], 1), 1),
-            "handTypes": stats["handTypes"],
-        }
+        result[player] = _stats_to_dict(stats)
 
-    return result
+    # Add per-game-type stats as nested dict
+    by_type = {}
+    for gt, players in player_stats_by_type.items():
+        by_type[gt] = {}
+        for player, stats in players.items():
+            by_type[gt][player] = _stats_to_dict(stats)
+
+    return {"overall": result, "byType": by_type}
 
 
 def categorize_hand(hand_name):
@@ -459,7 +496,8 @@ def store_game_log(game_id, logs, parsed):
     bp = len(parsed["biggestPots"])
     bb = len(parsed["badBeats"])
     ai = len(parsed["allInShowdowns"])
-    ps = len(parsed["playerStats"])
+    ps_data = parsed["playerStats"]
+    ps = len(ps_data.get("overall", ps_data)) if isinstance(ps_data, dict) else 0
     print(f"    Stored {chunk_count} chunks ({len(logs)} entries), {hand_count} hands")
     print(f"    Stats: {bp} biggest pots, {bb} bad beats, {ai} all-in showdowns, {ps} player stats")
 

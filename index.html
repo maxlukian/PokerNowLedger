@@ -850,6 +850,12 @@
 
             <div class="history-section">
                 <h3 class="section-header">Player Tendencies (VPIP)</h3>
+                <div id="vpipGameTypeTabs" style="display:none; margin-bottom:12px;">
+                    <button class="tab active" onclick="switchVpipType('all')">All</button>
+                    <button class="tab" onclick="switchVpipType('NLH')">NLH</button>
+                    <button class="tab" onclick="switchVpipType('PLO')">PLO</button>
+                    <button class="tab" onclick="switchVpipType('PLO8')">PLO8</button>
+                </div>
                 <div id="vpipLoading" style="color:#888;text-align:center;padding:20px;">Loading...</div>
                 <div class="performance-table-wrapper" id="vpipTableWrapper" style="display:none;">
                     <table class="performance-table" id="vpipTable">
@@ -1958,37 +1964,97 @@
             </tr>`).join('');
         }
 
+        // Store aggregated stats by game type for tab switching
+        let vpipByType = {};  // { 'all': {player: stats}, 'NLH': {...}, ... }
+        let currentVpipType = 'all';
+
+        function switchVpipType(type) {
+            currentVpipType = type;
+            // Update tab buttons
+            document.querySelectorAll('#vpipGameTypeTabs .tab').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === (type === 'all' ? 'All' : type));
+            });
+            // Rebuild vpipRows for the selected type
+            const data = vpipByType[type];
+            if (!data) {
+                vpipRows = [];
+                renderVpipTable();
+                return;
+            }
+            const pct = (num, den) => den > 0 ? Math.round(100 * num / den) : 0;
+            vpipRows = Object.entries(data)
+                .filter(([_, s]) => s.handsDealt >= 10)
+                .sort((a, b) => b[1].handsDealt - a[1].handsDealt)
+                .map(([name, s]) => {
+                    const vpip = pct(s.vpipHands, s.handsDealt);
+                    return {
+                        name, handsDealt: s.handsDealt, vpip, fold: 100 - vpip,
+                        flop: pct(s.sawFlop, s.handsDealt), turn: pct(s.sawTurn, s.handsDealt),
+                        river: pct(s.sawRiver, s.handsDealt), sd: pct(s.wentToShowdown, s.handsDealt),
+                    };
+                });
+            renderVpipTable();
+        }
+
+        function _mergeIntoAgg(agg, name, stats) {
+            if (!agg[name]) {
+                agg[name] = {
+                    handsDealt: 0, vpipHands: 0,
+                    sawFlop: 0, sawTurn: 0, sawRiver: 0,
+                    wentToShowdown: 0, handTypes: {},
+                };
+            }
+            const a = agg[name];
+            a.handsDealt += stats.handsDealt || 0;
+            a.vpipHands += stats.vpipHands || 0;
+            a.sawFlop += stats.sawFlop || 0;
+            a.sawTurn += stats.sawTurn || 0;
+            a.sawRiver += stats.sawRiver || 0;
+            a.wentToShowdown += stats.wentToShowdown || 0;
+            if (stats.handTypes) {
+                for (const [ht, count] of Object.entries(stats.handTypes)) {
+                    a.handTypes[ht] = (a.handTypes[ht] || 0) + count;
+                }
+            }
+        }
+
         function loadPlayerStats() {
-            // Aggregate VPIP and hand type data across all games
-            const aggregated = {};  // player -> merged stats
+            // Aggregate VPIP and hand type data across all games, overall + by game type
+            vpipByType = { all: {} };
+            let hasGameTypeData = false;
 
             for (const game of allHistoricalGames) {
                 if (!game.playerStats) continue;
-                for (const [player, stats] of Object.entries(game.playerStats)) {
-                    const name = resolveName(player);
-                    if (!aggregated[name]) {
-                        aggregated[name] = {
-                            handsDealt: 0, vpipHands: 0,
-                            sawFlop: 0, sawTurn: 0, sawRiver: 0,
-                            wentToShowdown: 0, handTypes: {},
-                        };
-                    }
-                    const a = aggregated[name];
-                    a.handsDealt += stats.handsDealt || 0;
-                    a.vpipHands += stats.vpipHands || 0;
-                    a.sawFlop += stats.sawFlop || 0;
-                    a.sawTurn += stats.sawTurn || 0;
-                    a.sawRiver += stats.sawRiver || 0;
-                    a.wentToShowdown += stats.wentToShowdown || 0;
-                    if (stats.handTypes) {
-                        for (const [ht, count] of Object.entries(stats.handTypes)) {
-                            a.handTypes[ht] = (a.handTypes[ht] || 0) + count;
+
+                // Handle new format: { overall: {...}, byType: {...} }
+                // and old format: { player: stats }
+                const ps = game.playerStats;
+                const overallStats = ps.overall || ps;
+                const byTypeStats = ps.byType || null;
+
+                // Aggregate overall
+                for (const [player, stats] of Object.entries(overallStats)) {
+                    _mergeIntoAgg(vpipByType.all, resolveName(player), stats);
+                }
+
+                // Aggregate by game type
+                if (byTypeStats) {
+                    hasGameTypeData = true;
+                    for (const [gt, players] of Object.entries(byTypeStats)) {
+                        if (!vpipByType[gt]) vpipByType[gt] = {};
+                        for (const [player, stats] of Object.entries(players)) {
+                            _mergeIntoAgg(vpipByType[gt], resolveName(player), stats);
                         }
                     }
                 }
             }
 
-            const players = Object.entries(aggregated)
+            // Show game type tabs if we have per-type data
+            if (hasGameTypeData) {
+                document.getElementById('vpipGameTypeTabs').style.display = 'block';
+            }
+
+            const players = Object.entries(vpipByType.all)
                 .filter(([_, s]) => s.handsDealt >= 10)
                 .sort((a, b) => b[1].handsDealt - a[1].handsDealt);
 
