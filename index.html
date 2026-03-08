@@ -1324,19 +1324,44 @@
             historyMergeBtn.disabled = selected.length < 2 || !historyMergePrimary.value;
 
             if (merges.length > 0) {
+                const unmergedForAdd = getHistoryUnmergedNames();
                 historyMergedGroups.innerHTML = '<div class="section-header" style="margin-top:4px;">Active Merges</div>' +
                     merges.map((merge, i) => {
-                        return `<div class="merged-group-item">
-                            <span>
+                        const addId = `addToMerge_${i}`;
+                        return `<div class="merged-group-item" style="flex-wrap:wrap;">
+                            <span style="flex:1;">
                                 <span class="merged-group-primary">${escapeHtml(merge.primary)}</span>
                                 <span class="merged-group-names"> ← ${merge.aliases.map(a => escapeHtml(a)).join(', ')}</span>
                             </span>
+                            <button class="undo-merge-btn" onclick="toggleAddToMerge(${i})" title="Add name to this merge" style="margin-right:4px;">+ add</button>
                             <button class="undo-merge-btn" onclick="undoMerge(${i})">undo</button>
+                            <div id="${addId}" style="display:none; width:100%; margin-top:8px;">
+                                <select id="${addId}_select" style="padding:6px 10px; border-radius:6px; border:1px solid #2a3a5c; background:#1a1a2e; color:#e0e0e0; font-size:13px; margin-right:6px;">
+                                    <option value="">Select name to add...</option>
+                                    ${unmergedForAdd.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join('')}
+                                </select>
+                                <button class="undo-merge-btn" onclick="addNameToMerge(${i})" style="background:#4fc3f7; color:#1a1a2e; font-weight:600;">Add</button>
+                            </div>
                         </div>`;
                     }).join('');
             } else {
                 historyMergedGroups.innerHTML = '';
             }
+        }
+
+        function toggleAddToMerge(index) {
+            const el = document.getElementById(`addToMerge_${index}`);
+            el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+        }
+
+        function addNameToMerge(index) {
+            const select = document.getElementById(`addToMerge_${index}_select`);
+            const name = select.value;
+            if (!name) return;
+            merges[index].aliases.push(name);
+            saveMergesToFirestore();
+            renderHistoryMergeUI();
+            renderHistory();
         }
 
         function performHistoryMerge() {
