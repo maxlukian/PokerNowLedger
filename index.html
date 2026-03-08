@@ -970,6 +970,7 @@
         const selectedForMerge = new Set();
         let allHistoricalGames = [];
         let historyLoaded = false;
+        let historyNeedsRefresh = false;
         let pnlChart = null;
 
         function toggleAllDatasets(show) {
@@ -1175,6 +1176,9 @@
 
                 gameLink.value = '';
                 updateDisplay();
+
+                // Reload history so new games appear on History tab
+                loadHistoricalGames();
             } catch (err) {
                 showError(`Error: ${err.message}`);
             } finally {
