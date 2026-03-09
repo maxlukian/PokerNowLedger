@@ -1295,7 +1295,10 @@
                     }
 
                     const data = await response.json();
-                    // Compute correct net including inGame stack
+                    // Save to Firestore (handles inGame + cents conversion)
+                    await saveGameToFirestore(gameId, data, date, isCents);
+
+                    // Apply cents divisor for local session display
                     const divisor = isCents ? 100 : 1;
                     for (const pid of Object.keys(data.playersInfos)) {
                         const p = data.playersInfos[pid];
@@ -1305,9 +1308,6 @@
                         p.buyInSum = p.buyInSum / divisor;
                     }
                     games.push({ gameId, data, date });
-
-                    // Save to Firestore
-                    await saveGameToFirestore(gameId, data, date, isCents);
                 }
 
                 gameLink.value = '';
