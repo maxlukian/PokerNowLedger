@@ -849,6 +849,9 @@
                     <label style="display:flex;align-items:center;gap:4px;color:#888;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
                         <input type="checkbox" id="centsMode"> Cents?
                     </label>
+                    <label style="display:flex;align-items:center;gap:4px;color:#f87171;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
+                        <input type="checkbox" id="noSaveMode"> DO NOT SAVE
+                    </label>
                     <button id="fetchBtn">Add</button>
                 </div>
                 <div class="error" id="error"></div>
@@ -1143,20 +1146,22 @@
                 };
             }
 
-            const existing = await docRef.get();
-            if (existing.exists) {
-                await docRef.update({ players });
-            } else {
-                await docRef.set({
-                    gameId,
-                    date,
-                    addedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    isCents: isCents || false,
-                    players
-                });
+            if (!document.getElementById('noSaveMode').checked) {
+                const existing = await docRef.get();
+                if (existing.exists) {
+                    await docRef.update({ players });
+                } else {
+                    await docRef.set({
+                        gameId,
+                        date,
+                        addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        isCents: isCents || false,
+                        players
+                    });
+                }
             }
 
-            // Update local history array
+            // Update local history array (always, for session display)
             const idx = allHistoricalGames.findIndex(g => g.gameId === gameId);
             if (idx >= 0) allHistoricalGames[idx].players = players;
             else allHistoricalGames.push({ gameId, date, players });
@@ -1347,9 +1352,9 @@
             console.log(`Fetching log for ${gameId}...`);
             _updateLogProgress(`${pfx}Fetching log for ${gameId.slice(0,12)}...`);
 
-            // Mark as started (for retry on incomplete)
+            const noSave = document.getElementById('noSaveMode').checked;
             const gameRef = db.collection('games').doc(gameId);
-            await gameRef.update({ logFetchStarted: true }).catch(() => {});
+            if (!noSave) await gameRef.update({ logFetchStarted: true }).catch(() => {});
 
             // Fetch all log pages via proxy (with retry + backoff)
             const allLogs = [];
@@ -1409,24 +1414,26 @@
             // Store to Firestore
             _updateLogProgress(`${pfx}${gameId.slice(0,12)}... saving ${handCount} hands`);
 
-            // playerStats → subcollection
-            const ps = parsed.playerStats;
-            if (ps.overall) {
-                await gameRef.collection('parsed_data').doc('playerStats').set({ players: ps.overall });
-                for (const [gt, players] of Object.entries(ps.byType || {})) {
-                    await gameRef.collection('parsed_data').doc(`playerStats_${gt}`).set({ players });
+            if (!noSave) {
+                // playerStats → subcollection
+                const ps = parsed.playerStats;
+                if (ps.overall) {
+                    await gameRef.collection('parsed_data').doc('playerStats').set({ players: ps.overall });
+                    for (const [gt, players] of Object.entries(ps.byType || {})) {
+                        await gameRef.collection('parsed_data').doc(`playerStats_${gt}`).set({ players });
+                    }
                 }
-            }
 
-            // highlights → game doc
-            await gameRef.update({
-                logFetched: true,
-                logEntryCount: allLogs.length,
-                handCount,
-                biggestPots: parsed.biggestPots,
-                badBeats: parsed.badBeats,
-                allInShowdowns: parsed.allInShowdowns,
-            });
+                // highlights → game doc
+                await gameRef.update({
+                    logFetched: true,
+                    logEntryCount: allLogs.length,
+                    handCount,
+                    biggestPots: parsed.biggestPots,
+                    badBeats: parsed.badBeats,
+                    allInShowdowns: parsed.allInShowdowns,
+                });
+            }
 
             console.log(`Log for ${gameId}: ${allLogs.length} entries, ${handCount} hands`);
             return parsed;
@@ -1474,6 +1481,7 @@
 
         // Store raw log entries to Firestore in chunks (subcollection)
         async function _storeRawLogs(gameId, logs) {
+            if (document.getElementById('noSaveMode').checked) return;
             const gameRef = db.collection('games').doc(gameId);
             const CHUNK_SIZE = 500;
             // Delete old chunks first
@@ -1541,49 +1549,48 @@
                         playerStats: _extractPlayerStats(hands),
                     };
 
-                    // Ensure game doc exists in Firestore
-                    const gameRef = db.collection('games').doc(gameId);
-                    const existing = await gameRef.get();
-                    if (!existing.exists) {
-                        // Need player session data — try to fetch from API
-                        try {
-                            const resp = await fetch(`/api/players?gameId=${gameId}`);
-                            if (resp.ok) {
-                                const data = await resp.json();
-                                await saveGameToFirestore(gameId, data, date);
-                            } else {
-                                // Create minimal game doc
+                    const csvNoSave = document.getElementById('noSaveMode').checked;
+                    if (!csvNoSave) {
+                        // Ensure game doc exists in Firestore
+                        const gameRef = db.collection('games').doc(gameId);
+                        const existing = await gameRef.get();
+                        if (!existing.exists) {
+                            // Need player session data — try to fetch from API
+                            try {
+                                const resp = await fetch(`/api/players?gameId=${gameId}`);
+                                if (resp.ok) {
+                                    const data = await resp.json();
+                                    await saveGameToFirestore(gameId, data, date);
+                                } else {
+                                    await gameRef.set({ gameId, date, addedAt: firebase.firestore.FieldValue.serverTimestamp(), players: {} });
+                                }
+                            } catch (e) {
                                 await gameRef.set({ gameId, date, addedAt: firebase.firestore.FieldValue.serverTimestamp(), players: {} });
                             }
-                        } catch (e) {
-                            await gameRef.set({ gameId, date, addedAt: firebase.firestore.FieldValue.serverTimestamp(), players: {} });
                         }
-                    }
 
-                    // Always update the date from CSV timestamps
-                    await gameRef.update({ date });
+                        await gameRef.update({ date });
 
-                    // Store raw log entries
-                    statusEl.innerHTML = `Saving raw log for ${gameId.slice(0,12)}...`;
-                    await _storeRawLogs(gameId, logs);
+                        statusEl.innerHTML = `Saving raw log for ${gameId.slice(0,12)}...`;
+                        await _storeRawLogs(gameId, logs);
 
-                    // Save parsed data (same as fetchAndParseLog)
-                    const ps = parsed.playerStats;
-                    if (ps.overall) {
-                        await gameRef.collection('parsed_data').doc('playerStats').set({ players: ps.overall });
-                        for (const [gt, players] of Object.entries(ps.byType || {})) {
-                            await gameRef.collection('parsed_data').doc(`playerStats_${gt}`).set({ players });
+                        const ps = parsed.playerStats;
+                        if (ps.overall) {
+                            await gameRef.collection('parsed_data').doc('playerStats').set({ players: ps.overall });
+                            for (const [gt, players] of Object.entries(ps.byType || {})) {
+                                await gameRef.collection('parsed_data').doc(`playerStats_${gt}`).set({ players });
+                            }
                         }
-                    }
 
-                    await gameRef.update({
-                        logFetched: true,
-                        logEntryCount: logs.length,
-                        handCount,
-                        biggestPots: parsed.biggestPots,
-                        badBeats: parsed.badBeats,
-                        allInShowdowns: parsed.allInShowdowns,
-                    });
+                        await gameRef.update({
+                            logFetched: true,
+                            logEntryCount: logs.length,
+                            handCount,
+                            biggestPots: parsed.biggestPots,
+                            badBeats: parsed.badBeats,
+                            allInShowdowns: parsed.allInShowdowns,
+                        });
+                    }
 
                     processed++;
                     results.push(`<span class="success">✓ ${file.name}: ${handCount} hands</span>`);
