@@ -845,22 +845,22 @@
             <div class="input-section">
                 <div class="input-row">
                     <input type="text" id="gameLink" placeholder="Paste one or more PokerNow links...">
-                    <input type="date" id="gameDate">
-                    <label style="display:flex;align-items:center;gap:4px;color:#888;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
+                    <input type="date" id="gameDate" style="display:none;">
+                    <label style="display:none;align-items:center;gap:4px;color:#888;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
                         <input type="checkbox" id="centsMode"> Cents?
                     </label>
-                    <label style="display:flex;align-items:center;gap:4px;color:#f87171;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
+                    <label style="display:none;align-items:center;gap:4px;color:#f87171;font-size:0.85rem;white-space:nowrap;cursor:pointer;">
                         <input type="checkbox" id="noSaveMode"> DO NOT SAVE
                     </label>
                     <button id="fetchBtn">Add</button>
                 </div>
                 <div class="error" id="error"></div>
                 <div id="logProgress" style="display:none;"></div>
-                <div class="csv-upload-zone" id="csvDropZone" onclick="document.getElementById('csvFileInput').click()">
+                <div class="csv-upload-zone" id="csvDropZone" onclick="document.getElementById('csvFileInput').click()" style="display:none;">
                     Drop PokerNow CSV log files here, or click to browse
                     <input type="file" id="csvFileInput" accept=".csv" multiple>
                 </div>
-                <div class="csv-upload-status" id="csvStatus"></div>
+                <div class="csv-upload-status" id="csvStatus" style="display:none;"></div>
             </div>
 
             <div class="results" id="results">
